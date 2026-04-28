@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accident History - Emergency Response System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin-top: 20px;
+        }
+
+        h1 {
+            color: #20c997;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            flex: 1;
+            min-width: 150px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-card h3 {
+            font-size: 2.5rem;
+            margin: 0;
+        }
+
+        .stat-card p {
+            margin: 5px 0 0;
+            opacity: 0.8;
+            font-size: 0.9rem;
+        }
+
+        .stat-card.total h3 {
+            color: #20c997;
+        }
+
+        .stat-card.dispatched h3 {
+            color: #ffc107;
+        }
+
+        .stat-card.completed h3 {
+            color: #28a745;
+        }
+
+        .stat-card.cancelled h3 {
+            color: #dc3545;
+        }
+
+        .table-container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        table {
+            width: 100%;
+            color: #fff;
+        }
+
+        th {
+            background: rgba(32, 201, 151, 0.3);
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            vertical-align: middle;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-pending {
+            background: #6c757d;
+        }
+
+        .status-dispatched {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .status-completed {
+            background: #28a745;
+        }
+
+        .status-cancelled {
+            background: #dc3545;
+        }
+
+        .btn-action {
+            padding: 5px 10px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin: 2px;
+        }
+
+        .btn-complete {
+            background: #28a745;
+            color: #fff;
+        }
+
+        .btn-cancel {
+            background: #dc3545;
+            color: #fff;
+        }
+
+        .btn-view {
+            background: #17a2b8;
+            color: #fff;
+        }
+
+        .top-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .btn-report {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            padding: 10px 25px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+
+        .btn-report:hover {
+            transform: scale(1.05);
+        }
+
+        .btn-back {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 10px 25px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        .img-thumb {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .img-thumb:hover {
+            transform: scale(1.5);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px;
+            opacity: 0.7;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+        }
+
+        .filter-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-row select,
+        .filter-row input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 8px 15px;
+            border-radius: 8px;
+        }
+
+        .filter-row select option {
+            background: #1a1a2e;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>📊 Accident History Dashboard</h1>
+
+        <div class="top-actions">
+            <a href="/command_center" class="btn-back">← Back to Command Center</a>
+            <div>
+                <button onclick="downloadReport()" class="btn-report">📄 Download PDF Report</button>
+                <button onclick="loadHistory()" class="btn-report"
+                    style="background: linear-gradient(135deg, #20c997 0%, #17a2b8 100%); margin-left: 10px;">🔄
+                    Refresh</button>
+            </div>
+        </div>
+
+        <div class="stats-row">
+            <div class="stat-card total">
+                <h3 id="totalCount">0</h3>
+                <p>Total Accidents</p>
+            </div>
+            <div class="stat-card dispatched">
+                <h3 id="dispatchedCount">0</h3>
+                <p>In Progress</p>
+            </div>
+            <div class="stat-card completed">
+                <h3 id="completedCount">0</h3>
+                <p>Completed</p>
+            </div>
+            <div class="stat-card cancelled">
+                <h3 id="cancelledCount">0</h3>
+                <p>Cancelled</p>
+            </div>
+        </div>
+
+        <div class="filter-row">
+            <select id="statusFilter" onchange="filterTable()">
+                <option value="">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="dispatched">Dispatched</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+            </select>
+            <input type="text" id="searchInput" placeholder="🔍 Search..." oninput="filterTable()">
+        </div>
+
+        <div class="table-container">
+            <table id="historyTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Date/Time</th>
+                        <th>Camera</th>
+                        <th>Location</th>
+                        <th>Ambulance</th>
+                        <th>Hospital</th>
+                        <th>Image</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <!-- Data will be loaded here -->
+                </tbody>
+            </table>
+            <div class="empty-state" id="emptyState" style="display: none;">
+                <h3>📭 No accident records found</h3>
+                <p>Accidents will appear here when detected by the system.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+
+        async function loadHistory() {
+            try {
+                const response = await fetch('/api/accident_history');
+                allData = await response.json();
+                renderTable(allData);
+                updateStats(allData);
+            } catch (error) {
+                console.error('Error loading history:', error);
+            }
+        }
+
+        function renderTable(data) {
+            const tbody = document.getElementById('historyBody');
+            const emptyState = document.getElementById('emptyState');
+
+            if (data.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            tbody.innerHTML = data.map(row => `
+                <tr data-id="${row.id}">
+                    <td>#${row.id}</td>
+                    <td>${formatDateTime(row.timestamp)}</td>
+                    <td>${row.camera_id || 'N/A'}</td>
+                    <td>${row.latitude?.toFixed(4)}, ${row.longitude?.toFixed(4)}</td>
+                    <td>🚑 ${row.ambulance_id || 'N/A'}<br><small>${row.driver_name || ''}</small></td>
+                    <td>🏥 ${(row.hospital_name || 'N/A').substring(0, 25)}</td>
+                    <td>${row.image_path ? `<img src="${row.image_path}" class="img-thumb" onclick="viewImage('${row.image_path}')">` : '—'}</td>
+                    <td><span class="status-badge status-${row.status}">${row.status}</span></td>
+                    <td>
+                        <button class="btn-action btn-delete" style="background-color: #dc3545; color: white;" onclick="deleteAccident(${row.id})">🗑️</button>
+                        ${row.status === 'dispatched' ? `
+                            <button class="btn-action btn-complete" onclick="updateStatus(${row.id}, 'completed')">✓ Complete</button>
+                            <button class="btn-action btn-cancel" onclick="updateStatus(${row.id}, 'cancelled')">✗ Cancel</button>
+                        ` : ''}
+                        ${row.route_link ? `<a href="${row.route_link}" target="_blank" class="btn-action btn-view">🗺️ Route</a>` : ''}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function updateStats(data) {
+            document.getElementById('totalCount').textContent = data.length;
+            document.getElementById('dispatchedCount').textContent = data.filter(d => d.status === 'dispatched' || d.status === 'pending').length;
+            document.getElementById('completedCount').textContent = data.filter(d => d.status === 'completed').length;
+            document.getElementById('cancelledCount').textContent = data.filter(d => d.status === 'cancelled').length;
+        }
+
+        function formatDateTime(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp);
+            return date.toLocaleString();
+        }
+
+        function filterTable() {
+            const status = document.getElementById('statusFilter').value;
+            const search = document.getElementById('searchInput').value.toLowerCase();
+
+            let filtered = allData;
+
+            if (status) {
+                filtered = filtered.filter(d => d.status === status);
+            }
+
+            if (search) {
+                filtered = filtered.filter(d =>
+                    (d.camera_id && d.camera_id.toLowerCase().includes(search)) ||
+                    (d.ambulance_id && d.ambulance_id.toLowerCase().includes(search)) ||
+                    (d.hospital_name && d.hospital_name.toLowerCase().includes(search))
+                );
+            }
+
+            renderTable(filtered);
+        }
+
+        async function updateStatus(id, status) {
+            if (!confirm(`Are you sure you want to mark this as ${status}?`)) return;
+
+            try {
+                const response = await fetch('/api/update_accident_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, status })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    loadHistory();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                alert('Error updating status');
+            }
+        }
+
+        async function deleteAccident(id) {
+            if (!confirm('Are you sure you want to delete this accident record? This cannot be undone.')) return;
+
+            try {
+                const response = await fetch('/api/delete_accident', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    loadHistory();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                alert('Error deleting record');
+            }
+        }
+
+        function viewImage(src) {
+            window.open(src, '_blank');
+        }
+
+        function downloadReport() {
+            window.open('/api/generate_report', '_blank');
+        }
+
+        // Load data on page load
+        loadHistory();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadHistory, 30000);
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+tf_env/
+
+# Database (will be recreated on deploy)
+# Keep emergency.db in git for initial data
+# *.db
+
+# Local-only files
+test_camera_integrated.py
+test_camera_roboflow.py
+train_model.py
+START_SYSTEM.bat
+*.h5
+*.ino
+
+# Datasets
+Accident Images Analysis Dataset/
+Kaggle Accident/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads (will be created at runtime)
+uploads/
+captures/

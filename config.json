@@ -1,0 +1,51 @@
+{
+    "system_name": "Integrated Emergency Response System",
+    "version": "2.0",
+    "camera_settings": {
+        "camera_id": "CAM_001",
+        "camera_name": "Laptop Camera",
+        "latitude": null,
+        "longitude": null,
+        "use_fixed_location": false,
+        "use_ip_geolocation": true,
+        "accident_threshold": 0.85,
+        "confirmation_frames": 20,
+        "cooldown_seconds": 300
+    },
+    "esp_settings": {
+        "accel_threshold_g": 2.4,
+        "gyro_threshold_dps": 130,
+        "confirm_count": 3,
+        "cancel_window_sec": 15,
+        "cooldown_sec": 300
+    },
+    "modes": {
+        "automatic": {
+            "enabled": true,
+            "description": "Automatically triggers emergency response when accident detected",
+            "auto_select_ambulance": true,
+            "auto_select_hospital": true,
+            "auto_send_sms": true
+        },
+        "manual": {
+            "enabled": true,
+            "description": "Manual fallback mode for operator override",
+            "override_allowed": true
+        }
+    },
+    "emergency_system": {
+        "base_url": "http://127.0.0.1:5000",
+        "endpoints": {
+            "trigger_auto": "/trigger_auto_response",
+            "get_status": "/get_auto_detection_status",
+            "manual_override": "/manual_override",
+            "command_center": "/command_center",
+            "control_room": "/control_room"
+        }
+    },
+    "sms_settings": {
+        "send_to_driver": true,
+        "send_to_officers": true,
+        "shorten_urls": true
+    }
+}

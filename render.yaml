@@ -1,0 +1,23 @@
+# render.yaml - Blueprint for one-click Render deployment
+# See: https://docs.render.com/blueprint-spec
+
+services:
+  - type: web
+    name: emergency-response-system
+    runtime: python
+    plan: free  # Change to "starter" ($7/mo) for always-on
+    buildCommand: pip install -r requirements.txt && python database_setup.py
+    startCommand: gunicorn app_cloud:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: TWILIO_ACCOUNT_SID
+        sync: false  # You'll set this manually in Render dashboard
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+    disk:
+      name: emergency-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Command Center</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <!-- Custom Styles -->
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 20px;
+            color: #0d6efd;
+        }
+
+        #map {
+            height: 400px;
+            width: 100%;
+            margin-top: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .list-container {
+            margin-top: 20px;
+        }
+
+        .list-group-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .list-group-item.auto-selected {
+            background-color: #d4edda;
+            border-color: #28a745;
+        }
+
+        .btn-select {
+            background-color: #198754;
+            border: none;
+            color: white;
+            font-size: 14px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn-select:hover {
+            background-color: #146c43;
+        }
+
+        .btn-send {
+            background-color: #0d6efd;
+            border: none;
+            color: white;
+            font-size: 18px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn-send:hover {
+            background-color: #0a58ca;
+        }
+
+        /* Auto-Detection Status Panel Styles */
+        .status-panel {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .status-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mode-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .mode-auto {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            animation: pulse 2s infinite;
+        }
+
+        .mode-manual {
+            background: linear-gradient(135deg, #0d6efd 0%, #6f42c1 100%);
+        }
+
+        .mode-override {
+            background: linear-gradient(135deg, #fd7e14 0%, #ffc107 100%);
+            color: #1a1a2e;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+            }
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .status-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 10px;
+            border-left: 3px solid #20c997;
+        }
+
+        .status-label {
+            font-size: 0.75rem;
+            color: #adb5bd;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-value {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: 3px;
+        }
+
+        .status-value.success {
+            color: #28a745;
+        }
+
+        .status-value.warning {
+            color: #ffc107;
+        }
+
+        .status-value.error {
+            color: #dc3545;
+        }
+
+        .status-value.info {
+            color: #17a2b8;
+        }
+
+        .status-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn-accept {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            border: none;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-accept:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+        }
+
+        .btn-override {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid #ffc107;
+            color: #ffc107;
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-override:hover {
+            background: #ffc107;
+            color: #1a1a2e;
+        }
+
+        .btn-cancel-alert {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            border: none;
+            color: #fff;
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            animation: pulse-red 1s infinite;
+        }
+
+        @keyframes pulse-red {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+            }
+
+            50% {
+                box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+            }
+        }
+
+        .countdown-display {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #dc3545;
+            margin: 10px 0;
+        }
+
+        .audio-controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+        }
+
+        .btn-mute {
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .nav-link-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 20px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: transform 0.2s;
+        }
+
+        .nav-link-btn:hover {
+            transform: scale(1.05);
+            color: #fff;
+        }
+
+        .no-detection {
+            text-align: center;
+            padding: 20px;
+            color: #adb5bd;
+        }
+
+        .camera-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 24px;
+            }
+
+            .btn-send {
+                font-size: 16px;
+                padding: 8px 16px;
+            }
+
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Audio Alert for Accidents -->
+    <audio id="alarmAudio" loop>
+        <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+    </audio>
+
+    <!-- Audio Controls -->
+    <div class="audio-controls">
+        <button class="btn-mute" id="muteBtn" onclick="toggleMute()">🔊</button>
+    </div>
+
+    <!-- Header Section -->
+    <div class="container text-center mt-4">
+        <h1>🚨 Command Center</h1>
+        <p class="lead">Monitor auto-detected accidents or manually select ambulance and hospital.</p>
+
+        <!-- Navigation Links -->
+        <div class="nav-links">
+            <a href="/accident_history" class="nav-link-btn">📊 Accident History</a>
+            <a href="/analytics" class="nav-link-btn">📈 Analytics</a>
+            <a href="/control_room" class="nav-link-btn">🎛️ Control Room</a>
+            <button class="nav-link-btn" onclick="openSettingsModal()" style="border:none; cursor:pointer;">⚙️
+                Settings</button>
+        </div>
+    </div>
+
+    <!-- Auto-Detection Status Panel -->
+    <div class="container mt-3">
+        <div class="status-panel" id="statusPanel">
+            <div class="status-header">
+                <div class="status-title">
+                    <span>📡 Detection Status</span>
+                </div>
+                <div>
+                    <button onclick="window.location.reload()" class="btn btn-sm btn-outline-light me-2">🔄 Reload
+                        Data</button>
+                    <span class="mode-badge mode-manual" id="modeBadge">MANUAL</span>
+                </div>
+            </div>
+
+            <div id="statusContent">
+                <div class="no-detection">
+                    <div class="camera-icon">📷</div>
+                    <p>Waiting for accident detection...</p>
+                    <small>System will automatically update when an accident is detected by camera.</small>
+                </div>
+            </div>
+
+            <div class="status-actions" id="statusActions" style="display: none;">
+                <button class="btn-accept" id="btnAccept" onclick="acceptAutoSelection()">
+                    ✅ Accept Auto Selection
+                </button>
+                <button class="btn-override" id="btnOverride" onclick="enableManualOverride()">
+                    ✏️ Override Selection
+                </button>
+                <button class="btn-cancel-alert" id="btnCancel" onclick="cancelAlert()">
+                    🚫 Cancel Alert
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Reports Section -->
+    <div class="container mt-4" id="manualReportsSection">
+        <div class="card bg-dark text-white">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">📝 Recent Manual Reports</h5>
+                <button class="btn btn-sm btn-primary" onclick="loadManualReports()">🔄 Refresh Reports</button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover" id="manualReportsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Time</th>
+                                <th>Location</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="manualReportsBody">
+                            <tr>
+                                <td colspan="4" class="text-center">No manual reports found.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Section -->
+    <div class="container mt-4">
+        <div id="map"></div>
+    </div>
+
+    <!-- Ambulance and Hospital Lists -->
+    <div class="container list-container">
+        <div class="row">
+            <!-- Ambulance List -->
+            <div class="col-md-6">
+                <h2>🚑 Ambulance List</h2>
+                <ul id="ambulanceList" class="list-group">
+                    <!-- Ambulances will be dynamically populated here -->
+                </ul>
+            </div>
+            <!-- Hospital List -->
+            <div class="col-md-6">
+                <h2>🏥 Hospital List</h2>
+                <ul id="hospitalList" class="list-group">
+                    <!-- Hospitals will be dynamically populated here -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Button -->
+    <div class="container text-center mt-4">
+        <button id="sendToControlRoom" class="btn-send">📤 Send to Control Room</button>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal fade" id="settingsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content" style="background: #2c3e50; color: white;">
+                <div class="modal-header">
+                    <h5 class="modal-title">⚙️ AI Model Settings</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Accident Detection Threshold (0.0 - 1.0)</label>
+                        <input type="number" id="settingThreshold" class="form-control" step="0.05" min="0" max="1">
+                        <small class="text-light opacity-75">Higher value = Less false positives, might miss some
+                            accidents.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Confirmation Frames</label>
+                        <input type="number" id="settingFrames" class="form-control" min="1" max="30">
+                        <small class="text-light opacity-75">Consecutive frames required to confirm accident.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Section -->
+    <footer class="text-center mt-4 mb-4">
+        <p class="text-muted small">© 2025 Emergency Response System. All rights reserved.</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // Initialize the map
+        const map = L.map('map').setView([18.5204, 73.8567], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // State variables
+        let accidentLat, accidentLon;
+        let selectedAmbulance = null;
+        let selectedHospital = null;
+        let autoDetectionData = null;
+        let isManualOverride = false;
+        let ambulanceMarkers = {};
+        let hospitalMarkers = {};
+
+        // Fetch accident location from Flask backend (passed via template)
+        const accidentLocation = "{{ accident_location }}";
+
+        if (accidentLocation && accidentLocation !== "None") {
+            const [accidentLatStr, accidentLonStr] = accidentLocation.replace("(", "").replace(")", "").split(",");
+            accidentLat = parseFloat(accidentLatStr.trim());
+            accidentLon = parseFloat(accidentLonStr.trim());
+
+            console.log("Parsed accident location:", accidentLat, accidentLon);
+
+            L.marker([accidentLat, accidentLon], {
+                icon: L.icon({
+                    iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34]
+                })
+            }).addTo(map).bindPopup("🚨 Accident Location");
+
+            map.setView([accidentLat, accidentLon], 12);
+            fetchAmbulancesAndHospitals(accidentLat, accidentLon);
+        }
+
+        // Poll for auto-detection status every 3 seconds
+        function pollAutoDetectionStatus() {
+            fetch('/get_auto_detection_status')
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Auto detection status:", data);
+                    updateStatusPanel(data);
+                    checkForNewAlert(data);  // Check and play alarm if new detection
+                })
+                .catch(error => {
+                    console.error("Error polling status:", error);
+                });
+        }
+
+        function updateStatusPanel(data) {
+            const modeBadge = document.getElementById('modeBadge');
+            const statusContent = document.getElementById('statusContent');
+            const statusActions = document.getElementById('statusActions');
+
+            if (data.accident_location && data.detection_mode) {
+                autoDetectionData = data;
+
+                // Update mode badge
+                if (data.detection_mode === 'automatic') {
+                    modeBadge.className = 'mode-badge mode-auto';
+                    modeBadge.textContent = '🤖 AUTOMATIC';
+                } else if (data.detection_mode === 'manual_override') {
+                    modeBadge.className = 'mode-badge mode-override';
+                    modeBadge.textContent = '✏️ OVERRIDE';
+                } else {
+                    modeBadge.className = 'mode-badge mode-manual';
+                    modeBadge.textContent = '👤 MANUAL';
+                }
+
+                // Build status content
+                let html = '<div class="status-grid">';
+
+                if (data.camera_id) {
+                    html += `
+                        <div class="status-item">
+                            <div class="status-label">Camera ID</div>
+                            <div class="status-value info">${data.camera_id}</div>
+                        </div>`;
+                }
+
+                if (data.accident_location) {
+                    const loc = data.accident_location;
+                    html += `
+                        <div class="status-item">
+                            <div class="status-label">Accident Location</div>
+                            <div class="status-value">${Array.isArray(loc) ? loc[0].toFixed(4) + ', ' + loc[1].toFixed(4) : 'Detected'}</div>
+                        </div>`;
+                }
+
+                if (data.auto_selected_ambulance) {
+                    const amb = data.auto_selected_ambulance;
+                    html += `
+                        <div class="status-item">
+                            <div class="status-label">Auto-Selected Ambulance</div>
+                            <div class="status-value success">🚑 ${amb.ambulance_no} (${amb.distance_km} km)</div>
+                        </div>`;
+                }
+
+                if (data.auto_selected_hospital) {
+                    const hosp = data.auto_selected_hospital;
+                    html += `
+                        <div class="status-item">
+                            <div class="status-label">Auto-Selected Hospital</div>
+                            <div class="status-value success">🏥 ${hosp.name} (${hosp.distance_km} km)</div>
+                        </div>`;
+                }
+
+                html += '</div>';
+
+                // Add accident image if available
+                if (data.accident_image_url) {
+                    html += `
+                        <div class="accident-image-container" style="margin-top: 15px; text-align: center;">
+                            <div class="status-label" style="margin-bottom: 8px;">📸 Captured Accident Image</div>
+                            <a href="${data.accident_image_url}" target="_blank" style="display: inline-block;">
+                                <img src="${data.accident_image_url}" alt="Accident Image" 
+                                     style="max-width: 100%; max-height: 200px; border-radius: 10px; 
+                                            border: 2px solid #20c997; cursor: pointer;
+                                            box-shadow: 0 4px 15px rgba(0,0,0,0.3);"
+                                     onerror="this.style.display='none'; this.parentElement.innerHTML='<span style=color:#adb5bd>Image loading...</span>';">
+                            </a>
+                            <div style="font-size: 0.75rem; color: #adb5bd; margin-top: 5px;">Click to view full size</div>
+                        </div>`;
+                }
+
+                statusContent.innerHTML = html;
+
+                // Show action buttons for automatic mode
+                if (data.detection_mode === 'automatic' && !isManualOverride) {
+                    statusActions.style.display = 'flex';
+
+                    // Auto-select ambulance and hospital
+                    if (data.auto_selected_ambulance) {
+                        selectedAmbulance = data.auto_selected_ambulance;
+                        highlightSelectedAmbulance(data.auto_selected_ambulance.ambulance_no);
+                    }
+                    if (data.auto_selected_hospital) {
+                        selectedHospital = data.auto_selected_hospital;
+                        highlightSelectedHospital(data.auto_selected_hospital.name);
+                    }
+                } else {
+                    statusActions.style.display = 'none';
+                }
+
+                // Update map if accident location changed
+                if (data.accident_location && Array.isArray(data.accident_location)) {
+                    const [lat, lon] = data.accident_location;
+                    if (lat !== accidentLat || lon !== accidentLon) {
+                        accidentLat = lat;
+                        accidentLon = lon;
+                        map.setView([lat, lon], 12);
+                        L.marker([lat, lon], {
+                            icon: L.icon({
+                                iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34]
+                            })
+                        }).addTo(map).bindPopup("🚨 Auto-Detected Accident");
+                        fetchAmbulancesAndHospitals(lat, lon);
+                    }
+                }
+            }
+        }
+
+        function highlightSelectedAmbulance(ambulanceNo) {
+            document.querySelectorAll('#ambulanceList .list-group-item').forEach(item => {
+                if (item.dataset.ambulanceNo === ambulanceNo) {
+                    item.classList.add('auto-selected');
+                } else {
+                    item.classList.remove('auto-selected');
+                }
+            });
+        }
+
+        function highlightSelectedHospital(hospitalName) {
+            document.querySelectorAll('#hospitalList .list-group-item').forEach(item => {
+                if (item.dataset.hospitalName === hospitalName) {
+                    item.classList.add('auto-selected');
+                } else {
+                    item.classList.remove('auto-selected');
+                }
+            });
+        }
+
+        function acceptAutoSelection() {
+            if (selectedAmbulance && selectedHospital) {
+                alert(`✅ Accepted:\n🚑 Ambulance: ${selectedAmbulance.ambulance_no}\n🏥 Hospital: ${selectedHospital.name}`);
+                document.getElementById('statusActions').style.display = 'none';
+            }
+        }
+
+        function enableManualOverride() {
+            isManualOverride = true;
+            document.getElementById('modeBadge').className = 'mode-badge mode-override';
+            document.getElementById('modeBadge').textContent = '✏️ OVERRIDE';
+            document.getElementById('statusActions').style.display = 'none';
+
+            // Clear auto-selections
+            document.querySelectorAll('.auto-selected').forEach(item => {
+                item.classList.remove('auto-selected');
+            });
+            selectedAmbulance = null;
+            selectedHospital = null;
+
+            alert("⚠️ Manual override enabled. Please select ambulance and hospital manually.");
+        }
+
+        function fetchAmbulancesAndHospitals(lat, lon) {
+            // Fetch nearby ambulances
+            fetch(`/get_ambulances?latitude=${lat}&longitude=${lon}`)
+                .then(response => response.json())
+                .then(ambulances => {
+                    const ambulanceList = document.getElementById('ambulanceList');
+                    ambulanceList.innerHTML = ''; // Clear existing
+
+                    ambulances.forEach(ambulance => {
+                        const li = document.createElement('li');
+                        li.className = "list-group-item";
+                        li.dataset.ambulanceNo = ambulance.ambulance_no;
+
+                        const details = document.createElement('span');
+                        details.innerHTML = `<strong>${ambulance.ambulance_no}</strong> - ${ambulance.driver_name} (${ambulance.distance_km} km)`;
+
+                        const selectBtn = document.createElement('button');
+                        selectBtn.className = "btn-select";
+                        selectBtn.textContent = "Select";
+                        selectBtn.onclick = () => {
+                            selectedAmbulance = ambulance;
+                            highlightSelectedAmbulance(ambulance.ambulance_no);
+                            console.log(`Selected ambulance: ${ambulance.ambulance_no}`);
+                        };
+
+                        li.appendChild(details);
+                        li.appendChild(selectBtn);
+                        ambulanceList.appendChild(li);
+
+                        // Add marker
+                        const marker = L.marker([ambulance.latitude, ambulance.longitude], {
+                            icon: L.icon({
+                                iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34]
+                            })
+                        }).addTo(map).bindPopup(`🚑 ${ambulance.ambulance_no}`);
+                        ambulanceMarkers[ambulance.ambulance_no] = marker;
+                    });
+
+                    // Check if we should auto-select
+                    if (autoDetectionData && autoDetectionData.auto_selected_ambulance) {
+                        highlightSelectedAmbulance(autoDetectionData.auto_selected_ambulance.ambulance_no);
+                    }
+                });
+
+            // Fetch nearby hospitals
+            fetch(`/get_hospitals?latitude=${lat}&longitude=${lon}`)
+                .then(response => response.json())
+                .then(hospitals => {
+                    const hospitalList = document.getElementById('hospitalList');
+                    hospitalList.innerHTML = ''; // Clear existing
+
+                    hospitals.forEach(hospital => {
+                        const li = document.createElement('li');
+                        li.className = "list-group-item";
+                        li.dataset.hospitalName = hospital.name;
+
+                        const details = document.createElement('span');
+                        details.innerHTML = `<strong>${hospital.name}</strong> (${hospital.distance_km} km)`;
+
+                        const selectBtn = document.createElement('button');
+                        selectBtn.className = "btn-select";
+                        selectBtn.textContent = "Select";
+                        selectBtn.onclick = () => {
+                            selectedHospital = hospital;
+                            highlightSelectedHospital(hospital.name);
+                            console.log(`Selected hospital: ${hospital.name}`);
+                        };
+
+                        li.appendChild(details);
+                        li.appendChild(selectBtn);
+                        hospitalList.appendChild(li);
+
+                        // Add marker
+                        const marker = L.marker([hospital.latitude, hospital.longitude], {
+                            icon: L.icon({
+                                iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34]
+                            })
+                        }).addTo(map).bindPopup(`🏥 ${hospital.name}`);
+                        hospitalMarkers[hospital.name] = marker;
+                    });
+
+                    // Check if we should auto-select
+                    if (autoDetectionData && autoDetectionData.auto_selected_hospital) {
+                        highlightSelectedHospital(autoDetectionData.auto_selected_hospital.name);
+                    }
+                });
+        }
+
+        // Send selected locations to Control Room
+        document.getElementById('sendToControlRoom').onclick = () => {
+            if (!selectedAmbulance || !selectedHospital) {
+                alert("⚠️ Please select an ambulance and a hospital first.");
+                return;
+            }
+
+            const payload = {
+                accident_lat: accidentLat,
+                accident_lon: accidentLon,
+                ambulance_lat: selectedAmbulance.latitude,
+                ambulance_lon: selectedAmbulance.longitude,
+                hospital_lat: selectedHospital.latitude,
+                hospital_lon: selectedHospital.longitude
+            };
+            console.log("Payload being sent:", payload);
+
+            fetch('/send_to_control_room', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Control Room Response:", data);
+                    alert("✅ Data successfully sent to Control Room!");
+                    window.location.href = '/control_room';
+                })
+                .catch(error => {
+                    console.error("Error communicating with Control Room:", error);
+                    alert("❌ Error sending data to Control Room!");
+                });
+        };
+
+        // Start polling for auto-detection status
+        setInterval(pollAutoDetectionStatus, 3000);
+        pollAutoDetectionStatus(); // Initial poll
+
+        // ==================== AUDIO ALERT FUNCTIONS ====================
+
+        let isMuted = false;
+        let previousDetectionMode = 'manual';
+        let alertPlaying = false;
+
+        function playAlarm() {
+            if (isMuted || alertPlaying) return;
+            const audio = document.getElementById('alarmAudio');
+            audio.play().catch(e => console.log('Audio autoplay blocked'));
+            alertPlaying = true;
+        }
+
+        function stopAlarm() {
+            const audio = document.getElementById('alarmAudio');
+            audio.pause();
+            audio.currentTime = 0;
+            alertPlaying = false;
+        }
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            const btn = document.getElementById('muteBtn');
+            btn.textContent = isMuted ? '🔇' : '🔊';
+            if (isMuted) stopAlarm();
+        }
+
+        // Check for new automatic detection and play alarm
+        function checkForNewAlert(data) {
+            if (data.detection_mode === 'automatic' && previousDetectionMode !== 'automatic') {
+                playAlarm();
+                // Request browser notification permission
+                if (Notification.permission === 'granted') {
+                    new Notification('🚨 Accident Detected!', {
+                        body: `Camera: ${data.camera_id}\nLocation: ${data.accident_location}`,
+                        icon: '🚨'
+                    });
+                } else if (Notification.permission !== 'denied') {
+                    Notification.requestPermission();
+                }
+            }
+            previousDetectionMode = data.detection_mode;
+        }
+
+        // ==================== CANCEL ALERT FUNCTION ====================
+
+        async function cancelAlert() {
+            if (!confirm('Are you sure you want to cancel this alert? The ambulance will NOT be dispatched.')) return;
+
+            try {
+                const response = await fetch('/api/cancel_alert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    stopAlarm();
+                    alert('✅ Alert cancelled successfully!');
+                    pollAutoDetectionStatus();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error cancelling alert:', error);
+                alert('Error cancelling alert');
+            }
+        }
+
+        // ==================== MANUAL REPORTS FUNCTION ====================
+
+        async function loadManualReports() {
+            try {
+                const response = await fetch('/api/accident_history');
+                const data = await response.json();
+
+                const tbody = document.getElementById('manualReportsBody');
+                tbody.innerHTML = '';
+
+                // Filter for accidents that might be relevant (e.g., pending or dispatched)
+                // You might want to distinguish manual vs auto. 
+                // Currently auto ones have camera_id. Manual ones might not? 
+                // We'll update app.py to ensure differentiation.
+                const relevantReports = data.filter(d => (d.status === 'pending' || d.status === 'dispatched'));
+
+                if (relevantReports.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center">No active reports found.</td></tr>';
+                    return;
+                }
+
+                relevantReports.forEach(report => {
+                    const row = document.createElement('tr');
+                    const isAuto = report.camera_id && report.camera_id !== 'Manual';
+
+                    row.innerHTML = `
+                        <td>#${report.id}</td>
+                        <td>${new Date(report.timestamp).toLocaleTimeString()}</td>
+                        <td>${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)} <br>
+                            <small class="text-muted">${isAuto ? '🤖 Auto (' + report.camera_id + ')' : '👤 Manual'}</small>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-info" onclick="selectReport(${report.id}, ${report.latitude}, ${report.longitude})">
+                                Select
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error("Error loading manual reports:", error);
+            }
+        }
+
+        function selectReport(id, lat, lon) {
+            console.log(`Selected report #${id}: ${lat}, ${lon}`);
+
+            // Update map view
+            accidentLat = lat;
+            accidentLon = lon;
+            map.setView([lat, lon], 12);
+
+            // Move marker
+            // Remove existing red marker if needed for cleaner UI, or just add new one
+            // For now, let's clear Markers and add this one
+            // (Implementation simplified for brevity)
+            L.marker([lat, lon], {
+                icon: L.icon({
+                    iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34]
+                })
+            }).addTo(map).bindPopup(`🚨 Selected Report #${id}`).openPopup();
+
+            fetchAmbulancesAndHospitals(lat, lon);
+
+            // Scroll to map
+            document.getElementById('map').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Load reports on start
+        loadManualReports();
+
+        // ==================== SETTINGS FUNCTIONS ====================
+
+        function openSettingsModal() {
+            fetch('/api/settings')
+                .then(res => res.json())
+                .then(config => {
+                    document.getElementById('settingThreshold').value = config.camera_settings.accident_threshold;
+                    document.getElementById('settingFrames').value = config.camera_settings.confirmation_frames;
+                    new bootstrap.Modal(document.getElementById('settingsModal')).show();
+                })
+                .catch(err => alert("Error loading settings: " + err));
+        }
+
+        function saveSettings() {
+            const threshold = parseFloat(document.getElementById('settingThreshold').value);
+            const frames = parseInt(document.getElementById('settingFrames').value);
+
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    camera_settings: {
+                        accident_threshold: threshold,
+                        confirmation_frames: frames
+                    }
+                })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert('Settings updated! Please restart the camera script to apply changes.');
+                        document.querySelector('#settingsModal .btn-close').click();
+                    } else {
+                        alert('Error: ' + data.error);
+                    }
+                })
+                .catch(err => alert("Error saving: " + err));
+        }
+
+        // Request notification permission on page load
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    </script>
+</body>
+
+</html>

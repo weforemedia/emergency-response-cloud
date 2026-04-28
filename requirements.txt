@@ -1,0 +1,8 @@
+flask==3.1.1
+gunicorn==23.0.0
+twilio==9.6.1
+requests==2.32.3
+pytz==2025.2
+inference-sdk==0.38.1
+reportlab==4.4.0
+Pillow==11.2.1

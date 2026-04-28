@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accident Detection Result</title>
+    <style>
+        /* General Styles */
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Container */
+        .container {
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .container:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Header */
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        /* Dynamic Colors for Header */
+        .accident-detected {
+            color: #dc3545; /* Red for accident detected */
+        }
+
+        .no-accident {
+            color: #28a745; /* Green for no accident */
+        }
+
+        /* Location Section */
+        .location {
+            margin-top: 20px;
+            font-size: 1rem;
+            color: #666666;
+        }
+
+        /* Loading Animation */
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Link to Upload Another Image */
+        a {
+            display: inline-block;
+            margin-top: 30px;
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: background-color 0.3s ease, transform 0.3s ease;
+        }
+
+        a:hover {
+            background-color: #0056b3;
+            transform: scale(1.05);
+        }
+
+        /* Footer */
+        footer {
+            margin-top: 30px;
+            font-size: 0.9rem;
+            color: #666666;
+        }
+
+        footer a {
+            color: #007bff;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        footer a:hover {
+            color: #0056b3;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 600px) {
+            .container {
+                padding: 30px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            a {
+                padding: 10px 20px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="result-header" class="{% if is_accident %}accident-detected{% else %}no-accident{% endif %}">
+            {% if is_accident %}
+                Accident Detected!
+            {% else %}
+                No Accident Detected
+            {% endif %}
+        </h1>
+        {% if is_accident %}
+            <div class="location loading">
+                Fetching your location...
+            </div>
+            <script>
+                // Dynamically set the header color
+                const header = document.getElementById("result-header");
+                header.classList.add("{% if is_accident %}accident-detected{% else %}no-accident{% endif %}");
+
+                // Fetch the user's location
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const latitude = position.coords.latitude;
+                            const longitude = position.coords.longitude;
+                            const locationElement = document.querySelector(".location");
+                            locationElement.textContent = `Location: ${latitude}, ${longitude}`;
+                            locationElement.classList.remove("loading");
+
+                            // Send the location to the command center using AJAX
+                            fetch("/send-location", {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({
+                                    latitude: latitude,
+                                    longitude: longitude,
+                                }),
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                console.log("Location sent to command center:", data);
+                            })
+                            .catch(error => {
+                                console.error("Error sending location:", error);
+                                locationElement.textContent = "Failed to send location.";
+                            });
+                        },
+                        (error) => {
+                            console.error("Error fetching location:", error);
+                            document.querySelector(".location").textContent = "Unable to fetch location.";
+                            document.querySelector(".location").classList.remove("loading");
+                        }
+                    );
+                } else {
+                    document.querySelector(".location").textContent = "Geolocation is not supported by this browser.";
+                    document.querySelector(".location").classList.remove("loading");
+                }
+            </script>
+        {% endif %}
+        <a href="/evaluate">Upload Another Image</a>
+        <footer>
+            &copy; 2025 Emergency Response System. All rights reserved.
+        </footer>
+    </div>
+</body>
+</html>

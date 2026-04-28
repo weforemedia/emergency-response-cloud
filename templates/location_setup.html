@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📍 Device Location Setup - Emergency Response System</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+        }
+
+        h1 {
+            color: #fff;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #a0a0a0;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .icon-container {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+        }
+
+        .status-box {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .status-label {
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .status-value {
+            color: #fff;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .coordinates {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .coord-box {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .coord-label {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .coord-value {
+            color: #4ade80;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: monospace;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4ade80, #22c55e);
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(74, 222, 128, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+
+        .message-success {
+            background: rgba(74, 222, 128, 0.2);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            color: #4ade80;
+        }
+
+        .message-error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+
+        .message-info {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #3b82f6;
+        }
+
+        .loading {
+            display: none;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #4ade80;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .info-text {
+            color: #888;
+            font-size: 13px;
+            margin-top: 20px;
+            line-height: 1.6;
+        }
+
+        .accuracy-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+
+        .accuracy-good {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+        }
+
+        .accuracy-medium {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .accuracy-poor {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="icon-container">📍</div>
+        <h1>Device Location Setup</h1>
+        <p class="subtitle">Set your laptop's GPS location for accurate accident detection</p>
+
+        <!-- Initial State -->
+        <div id="initialState">
+            <div class="status-box">
+                <div class="status-label">Current Status</div>
+                <div class="status-value" id="currentStatus">Location not configured</div>
+            </div>
+
+            <button class="btn btn-primary" onclick="getLocation()" id="getLocationBtn">
+                <i class="fas fa-location-crosshairs"></i>
+                Get My Location
+            </button>
+
+            <p class="info-text">
+                <i class="fas fa-info-circle"></i>
+                Click the button above and allow location access when prompted.<br>
+                This uses your browser's GPS/WiFi for accurate positioning.
+            </p>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden">
+            <div class="spinner"></div>
+            <p style="color: #fff;">Fetching your location...</p>
+            <p class="info-text">Please allow location access if prompted by your browser.</p>
+        </div>
+
+        <!-- Success State -->
+        <div id="successState" class="hidden">
+            <div class="message message-success">
+                <i class="fas fa-check-circle"></i> Location saved successfully!
+            </div>
+
+            <div class="status-box">
+                <div class="coordinates">
+                    <div class="coord-box">
+                        <div class="coord-label">Latitude</div>
+                        <div class="coord-value" id="latValue">--</div>
+                    </div>
+                    <div class="coord-box">
+                        <div class="coord-label">Longitude</div>
+                        <div class="coord-value" id="lonValue">--</div>
+                    </div>
+                </div>
+                <div class="accuracy-badge" id="accuracyBadge">
+                    <i class="fas fa-bullseye"></i> Accuracy: <span id="accuracyValue">--</span>m
+                </div>
+            </div>
+
+            <button class="btn btn-secondary" onclick="getLocation()">
+                <i class="fas fa-redo"></i>
+                Update Location
+            </button>
+
+            <p class="info-text" style="color: #4ade80;">
+                ✅ You can now start the camera detection system.<br>
+                It will use this location for accident reporting.
+            </p>
+        </div>
+
+        <!-- Error State -->
+        <div id="errorState" class="hidden">
+            <div class="message message-error" id="errorMessage">
+                <i class="fas fa-exclamation-circle"></i>
+                <span id="errorText">Error getting location</span>
+            </div>
+
+            <button class="btn btn-primary" onclick="getLocation()">
+                <i class="fas fa-redo"></i>
+                Try Again
+            </button>
+
+            <p class="info-text">
+                Make sure location services are enabled on your device and browser.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Check if location is already set on page load
+        checkExistingLocation();
+
+        async function checkExistingLocation() {
+            try {
+                const response = await fetch('/get_device_location');
+                const data = await response.json();
+
+                if (data.status === 'success' && data.location) {
+                    showSuccessState(data.location);
+                }
+            } catch (error) {
+                console.log('No existing location found');
+            }
+        }
+
+        function getLocation() {
+            // Hide all states, show loading
+            hideAllStates();
+            document.getElementById('loadingState').classList.remove('hidden');
+
+            if (!navigator.geolocation) {
+                showError('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            const options = {
+                enableHighAccuracy: true,
+                timeout: 30000,
+                maximumAge: 0
+            };
+
+            navigator.geolocation.getCurrentPosition(
+                onLocationSuccess,
+                onLocationError,
+                options
+            );
+        }
+
+        async function onLocationSuccess(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+
+            console.log(`Location obtained: ${lat}, ${lon} (accuracy: ${accuracy}m)`);
+
+            // Send to server
+            try {
+                const response = await fetch('/set_device_location', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        latitude: lat,
+                        longitude: lon,
+                        accuracy: accuracy
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    showSuccessState({
+                        latitude: lat,
+                        longitude: lon,
+                        accuracy: accuracy
+                    });
+                } else {
+                    showError(data.error || 'Failed to save location');
+                }
+            } catch (error) {
+                showError('Failed to save location: ' + error.message);
+            }
+        }
+
+        function onLocationError(error) {
+            let message;
+            switch (error.code) {
+                case error.PERMISSION_DENIED:
+                    message = 'Location permission denied. Please allow location access in your browser settings.';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    message = 'Location information unavailable. Make sure GPS/WiFi is enabled.';
+                    break;
+                case error.TIMEOUT:
+                    message = 'Location request timed out. Please try again.';
+                    break;
+                default:
+                    message = 'An unknown error occurred: ' + error.message;
+            }
+            showError(message);
+        }
+
+        function showSuccessState(location) {
+            hideAllStates();
+            document.getElementById('successState').classList.remove('hidden');
+
+            document.getElementById('latValue').textContent = location.latitude.toFixed(6);
+            document.getElementById('lonValue').textContent = location.longitude.toFixed(6);
+
+            const accuracy = Math.round(location.accuracy);
+            document.getElementById('accuracyValue').textContent = accuracy;
+
+            const badge = document.getElementById('accuracyBadge');
+            badge.className = 'accuracy-badge';
+            if (accuracy <= 50) {
+                badge.classList.add('accuracy-good');
+            } else if (accuracy <= 200) {
+                badge.classList.add('accuracy-medium');
+            } else {
+                badge.classList.add('accuracy-poor');
+            }
+        }
+
+        function showError(message) {
+            hideAllStates();
+            document.getElementById('errorState').classList.remove('hidden');
+            document.getElementById('errorText').textContent = message;
+        }
+
+        function hideAllStates() {
+            document.getElementById('initialState').classList.add('hidden');
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('successState').classList.add('hidden');
+            document.getElementById('errorState').classList.add('hidden');
+        }
+    </script>
+</body>
+
+</html>
