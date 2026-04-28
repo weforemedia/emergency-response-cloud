@@ -1869,8 +1869,7 @@ def api_seed_database():
 def wifi_locate():
     """
     Receive WiFi BSSID scan data from ESP32 and return GPS coordinates.
-    Uses Google Geolocation API to convert WiFi MAC addresses to lat/lon.
-    Accuracy: ~20-50 meters in urban areas.
+    Tries Google Geolocation API first, falls back to free alternatives.
     """
     try:
         data = request.json
@@ -1881,64 +1880,84 @@ def wifi_locate():
         
         logging.info(f"📡 WiFi locate request with {len(wifi_aps)} access points")
         
-        # Google Geolocation API
+        # Format access points
+        formatted_aps = [
+            {
+                "macAddress": ap.get("macAddress", ""),
+                "signalStrength": ap.get("signalStrength", -70),
+                "channel": ap.get("channel", 0)
+            }
+            for ap in wifi_aps
+        ]
+        
+        lat, lng, accuracy, source = None, None, None, None
+        
+        # ===== TRY 1: Google Geolocation API =====
         google_api_key = os.environ.get('GOOGLE_GEOLOCATION_KEY', '')
+        if google_api_key:
+            try:
+                google_url = f"https://www.googleapis.com/geolocation/v1/geolocate?key={google_api_key}"
+                resp = requests.post(google_url, json={"wifiAccessPoints": formatted_aps}, timeout=10)
+                
+                if resp.status_code == 200:
+                    result = resp.json()
+                    loc = result.get('location', {})
+                    lat, lng = loc.get('lat'), loc.get('lng')
+                    accuracy = result.get('accuracy', 0)
+                    source = "google_wifi"
+                    logging.info(f"📍 Google Geolocation: {lat}, {lng} (accuracy: {accuracy}m)")
+                else:
+                    logging.warning(f"Google API failed: {resp.status_code} — {resp.text[:200]}")
+            except Exception as ge:
+                logging.warning(f"Google Geolocation error: {ge}")
         
-        if not google_api_key:
-            logging.warning("GOOGLE_GEOLOCATION_KEY not set — using fallback")
-            # Fallback: use device_gps_location if set
-            if device_gps_location.get('latitude'):
-                return jsonify({
-                    "latitude": device_gps_location['latitude'],
-                    "longitude": device_gps_location['longitude'],
-                    "accuracy": device_gps_location.get('accuracy', 100),
-                    "source": "device_gps_fallback"
-                })
-            return jsonify({"error": "No Google API key set. Add GOOGLE_GEOLOCATION_KEY in Render env vars."}), 500
+        # ===== TRY 2: Unwired Labs (free tier — 100 req/day) =====
+        if lat is None:
+            unwired_key = os.environ.get('UNWIRED_API_KEY', '')
+            if unwired_key:
+                try:
+                    unwired_url = "https://us1.unwiredlabs.com/v2/process.php"
+                    unwired_payload = {
+                        "token": unwired_key,
+                        "wifi": [{"bssid": ap["macAddress"], "signal": ap["signalStrength"]} for ap in formatted_aps]
+                    }
+                    resp = requests.post(unwired_url, json=unwired_payload, timeout=10)
+                    if resp.status_code == 200:
+                        result = resp.json()
+                        if result.get('status') == 'ok':
+                            lat = result.get('lat')
+                            lng = result.get('lon')
+                            accuracy = result.get('accuracy', 50)
+                            source = "unwired_labs"
+                            logging.info(f"📍 Unwired Labs: {lat}, {lng}")
+                except Exception as ue:
+                    logging.warning(f"Unwired Labs error: {ue}")
         
-        # Call Google Geolocation API
-        google_url = f"https://www.googleapis.com/geolocation/v1/geolocate?key={google_api_key}"
+        # ===== TRY 3: Use stored device GPS location =====
+        if lat is None and device_gps_location.get('latitude'):
+            lat = device_gps_location['latitude']
+            lng = device_gps_location['longitude']
+            accuracy = device_gps_location.get('accuracy', 100)
+            source = "device_gps_fallback"
+            logging.info(f"📍 Fallback to stored device location: {lat}, {lng}")
         
-        # Format for Google API
-        google_payload = {
-            "wifiAccessPoints": [
-                {
-                    "macAddress": ap.get("macAddress", ""),
-                    "signalStrength": ap.get("signalStrength", -70),
-                    "channel": ap.get("channel", 0)
-                }
-                for ap in wifi_aps
-            ]
-        }
-        
-        resp = requests.post(google_url, json=google_payload, timeout=10)
-        
-        if resp.status_code == 200:
-            result = resp.json()
-            location = result.get('location', {})
-            lat = location.get('lat')
-            lng = location.get('lng')
-            accuracy = result.get('accuracy', 0)
-            
-            logging.info(f"📍 WiFi geolocation result: {lat}, {lng} (accuracy: {accuracy}m)")
-            
-            # Also update device_gps_location for other routes to use
+        # Return result
+        if lat is not None and lng is not None:
+            # Update device location for other routes
             device_gps_location['latitude'] = lat
             device_gps_location['longitude'] = lng
             device_gps_location['accuracy'] = accuracy
             device_gps_location['timestamp'] = datetime.now(IST).isoformat()
-            device_gps_location['source'] = 'wifi_bssid'
+            device_gps_location['source'] = source
             
             return jsonify({
                 "latitude": lat,
                 "longitude": lng,
                 "accuracy": accuracy,
-                "source": "google_wifi"
+                "source": source
             })
         else:
-            error_msg = resp.text
-            logging.error(f"Google Geolocation API error: {resp.status_code} — {error_msg}")
-            return jsonify({"error": f"Google API error: {resp.status_code}"}), 500
+            return jsonify({"error": "Could not determine location from any source"}), 500
             
     except Exception as e:
         logging.error(f"Error in /api/wifi_locate: {e}", exc_info=True)
