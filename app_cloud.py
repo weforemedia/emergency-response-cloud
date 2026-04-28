@@ -1865,6 +1865,86 @@ def api_seed_database():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/wifi_locate', methods=['POST'])
+def wifi_locate():
+    """
+    Receive WiFi BSSID scan data from ESP32 and return GPS coordinates.
+    Uses Google Geolocation API to convert WiFi MAC addresses to lat/lon.
+    Accuracy: ~20-50 meters in urban areas.
+    """
+    try:
+        data = request.json
+        wifi_aps = data.get('wifiAccessPoints', [])
+        
+        if not wifi_aps:
+            return jsonify({"error": "No WiFi access points provided"}), 400
+        
+        logging.info(f"📡 WiFi locate request with {len(wifi_aps)} access points")
+        
+        # Google Geolocation API
+        google_api_key = os.environ.get('GOOGLE_GEOLOCATION_KEY', '')
+        
+        if not google_api_key:
+            logging.warning("GOOGLE_GEOLOCATION_KEY not set — using fallback")
+            # Fallback: use device_gps_location if set
+            if device_gps_location.get('latitude'):
+                return jsonify({
+                    "latitude": device_gps_location['latitude'],
+                    "longitude": device_gps_location['longitude'],
+                    "accuracy": device_gps_location.get('accuracy', 100),
+                    "source": "device_gps_fallback"
+                })
+            return jsonify({"error": "No Google API key set. Add GOOGLE_GEOLOCATION_KEY in Render env vars."}), 500
+        
+        # Call Google Geolocation API
+        google_url = f"https://www.googleapis.com/geolocation/v1/geolocate?key={google_api_key}"
+        
+        # Format for Google API
+        google_payload = {
+            "wifiAccessPoints": [
+                {
+                    "macAddress": ap.get("macAddress", ""),
+                    "signalStrength": ap.get("signalStrength", -70),
+                    "channel": ap.get("channel", 0)
+                }
+                for ap in wifi_aps
+            ]
+        }
+        
+        resp = requests.post(google_url, json=google_payload, timeout=10)
+        
+        if resp.status_code == 200:
+            result = resp.json()
+            location = result.get('location', {})
+            lat = location.get('lat')
+            lng = location.get('lng')
+            accuracy = result.get('accuracy', 0)
+            
+            logging.info(f"📍 WiFi geolocation result: {lat}, {lng} (accuracy: {accuracy}m)")
+            
+            # Also update device_gps_location for other routes to use
+            device_gps_location['latitude'] = lat
+            device_gps_location['longitude'] = lng
+            device_gps_location['accuracy'] = accuracy
+            device_gps_location['timestamp'] = datetime.now(IST).isoformat()
+            device_gps_location['source'] = 'wifi_bssid'
+            
+            return jsonify({
+                "latitude": lat,
+                "longitude": lng,
+                "accuracy": accuracy,
+                "source": "google_wifi"
+            })
+        else:
+            error_msg = resp.text
+            logging.error(f"Google Geolocation API error: {resp.status_code} — {error_msg}")
+            return jsonify({"error": f"Google API error: {resp.status_code}"}), 500
+            
+    except Exception as e:
+        logging.error(f"Error in /api/wifi_locate: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/db_check')
 def db_check():
     """Debug: Check what's in the database"""
