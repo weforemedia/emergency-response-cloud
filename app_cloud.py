@@ -1801,18 +1801,28 @@ def seed_database():
         conn.close()
         return False  # Already seeded
     
-    # Seed hospitals
+    # Seed hospitals (full dataset — matches local system)
     hospitals = [
         ('Kamla Nehru Hospital', '+919356992477', 18.5204, 73.8567, 15, 3),
+        ('Dr. Naidu Contagious Disease Hospital', '+919356992477', 18.5195, 73.8555, 12, 2),
+        ('Pune District Hospital (Pune Civil Hospital)', '+919356992477', 18.5300, 73.8000, 20, 5),
         ('Sassoon General Hospital', '+919356992477', 18.5250, 73.8500, 25, 6),
+        ('Poona Hospital', '+919356992477', 18.5280, 73.8450, 18, 4),
         ('Ruby Hall Clinic', '+919356992477', 18.5249, 73.8478, 30, 8),
         ('Deenanath Mangeshkar Hospital', '+919356992477', 18.5150, 73.8200, 22, 5),
-        ('Jehangir Hospital', '+919356992477', 18.5267, 73.8489, 28, 7),
-        ('Poona Hospital', '+919356992477', 18.5280, 73.8450, 18, 4),
         ('Bharati Hospital', '+919356992477', 18.4500, 73.8700, 15, 3),
+        ('Jehangir Hospital', '+919356992477', 18.5267, 73.8489, 28, 7),
         ('Noble Hospital', '+919356992477', 18.5000, 73.9000, 14, 3),
+        ('Yashwantrao Chavan Memorial Hospital', '+919356992477', 18.6000, 73.8000, 20, 4),
+        ('Dr. Bansal Hospital', '+919356992477', 18.5500, 73.7500, 10, 2),
+        ('Sai Snehdeep Hospital', '+919356992477', 18.6100, 73.7800, 8, 1),
         ('Aditya Birla Memorial Hospital', '+919356992477', 18.5600, 73.7900, 35, 10),
         ('Lokmanya Hospital', '+919356992477', 18.6200, 73.8100, 12, 2),
+        ('Niramaya Hospital', '+919356992477', 18.6300, 73.8200, 10, 2),
+        ('Om Hospital', '+919356992477', 18.6400, 73.8300, 8, 1),
+        ('Sainath Hospital', '+919356992477', 18.6500, 73.8400, 10, 2),
+        ('Astha Hospital', '+919356992477', 18.6600, 73.8500, 12, 3),
+        ('Sushrut Hospital', '+919356992477', 18.6700, 73.8600, 15, 3),
     ]
     cur.executemany('INSERT INTO hospitals (name, phone_no, latitude, longitude, available_beds, icu_beds) VALUES (?, ?, ?, ?, ?, ?)', hospitals)
     
