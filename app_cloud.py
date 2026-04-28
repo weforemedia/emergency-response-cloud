@@ -985,10 +985,11 @@ def trigger_auto_response():
             history_cur = history_conn.cursor()
             history_cur.execute('''
                 INSERT INTO accident_history 
-                (camera_id, latitude, longitude, ambulance_id, driver_name, driver_phone, 
+                (timestamp, camera_id, latitude, longitude, ambulance_id, driver_name, driver_phone, 
                  hospital_name, hospital_phone, image_path, sms_status, route_link, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
+                datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'),
                 camera_id, lat, lon,
                 nearest_ambulance['ambulance_no'],
                 nearest_ambulance['driver_name'],
