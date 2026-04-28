@@ -43,6 +43,10 @@ CAPTURES_FOLDER = "captures"
 if not os.path.exists(CAPTURES_FOLDER):
     os.makedirs(CAPTURES_FOLDER)
 
+# Database path — use absolute path to avoid cwd issues with gunicorn
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'emergency.db')
+
 # ==================== HELPER FUNCTIONS ====================
 
 def shorten_url(long_url):
@@ -106,7 +110,7 @@ def fetch_and_update_local_resources(lat, lon):
             return False
             
         # 2. Update Database
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
         # Clear existing non-relevant data (optional: strategy could be append, but for demo replace is cleaner)
@@ -309,7 +313,7 @@ def report_accident():
         logging.info(f"Accident reported: {lat}, {lon}")
         
         # PERSIST TO DATABASE for Command Center list
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         current_time = datetime.now(IST).isoformat()
         cur.execute('''
@@ -376,7 +380,7 @@ def get_ambulances():
             logging.error(f"Invalid coordinates: lat={lat}, lon={lon}")
             return jsonify([]), 200
         
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute('SELECT ambulance_no, driver_name, phone_no, latitude, longitude FROM ambulances')
         ambulances = cur.fetchall()
@@ -431,7 +435,7 @@ def get_hospitals():
         
         # Connect to database
         try:
-            conn = sqlite3.connect('emergency.db')
+            conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             
             # Fetch all hospitals
@@ -855,7 +859,7 @@ def trigger_auto_response():
             logging.info(f"📸 Accident image: {image_url}")
         
         # ========== STEP 1: Find nearest ambulance ==========
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
         # Get all ambulances
@@ -977,7 +981,7 @@ def trigger_auto_response():
         # ========== STEP 5: Log to Accident History ==========
         history_id = None
         try:
-            history_conn = sqlite3.connect('emergency.db')
+            history_conn = sqlite3.connect(DB_PATH)
             history_cur = history_conn.cursor()
             history_cur.execute('''
                 INSERT INTO accident_history 
@@ -1010,7 +1014,7 @@ def trigger_auto_response():
         
         # ========== STEP 6: Update ambulance status to busy ==========
         try:
-            amb_conn = sqlite3.connect('emergency.db')
+            amb_conn = sqlite3.connect(DB_PATH)
             amb_cur = amb_conn.cursor()
             amb_cur.execute('''
                 UPDATE ambulances SET status = 'busy' 
@@ -1069,7 +1073,7 @@ def get_auto_detection_status():
 def get_esp_alerts():
     """Get accident alerts from ESP8266/IoT hardware devices"""
     try:
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('''
@@ -1094,7 +1098,7 @@ def get_esp_device_status():
     global auto_detection_data
     try:
         # Get counts from database
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
         cur.execute("SELECT COUNT(*) FROM accident_history WHERE camera_id LIKE 'ESP%'")
@@ -1221,7 +1225,7 @@ def accident_history_page():
 def get_accident_history():
     """Get all accident history records"""
     try:
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('''
@@ -1248,7 +1252,7 @@ def update_accident_status():
         
         logging.info(f"📝 Updating accident {history_id} to status: {new_status}")
         
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
         if new_status == 'completed':
@@ -1303,7 +1307,7 @@ def delete_accident():
         
         logging.info(f"🗑️ Deleting accident history ID: {history_id}")
         
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
         # Check if accident exists
@@ -1340,7 +1344,7 @@ def cancel_alert():
         
         # Update database status if history exists
         if auto_detection_data.get('current_history_id'):
-            conn = sqlite3.connect('emergency.db')
+            conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute('''
                 UPDATE accident_history SET status = 'cancelled' WHERE id = ?
@@ -1511,7 +1515,7 @@ def generate_report():
         from datetime import datetime
         
         # Get accident history
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('SELECT * FROM accident_history ORDER BY timestamp DESC LIMIT 50')
@@ -1596,7 +1600,7 @@ def analytics_page():
 def get_analytics_data():
     """Get analytics data for charts"""
     try:
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         
@@ -1727,7 +1731,7 @@ def system_status():
     esp_online = False
     esp_last_seen = None
     try:
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("SELECT timestamp FROM accident_history WHERE camera_id LIKE 'ESP%' ORDER BY timestamp DESC LIMIT 1")
         row = cur.fetchone()
@@ -1769,7 +1773,7 @@ def system_status():
 
 def seed_database():
     """Create tables and populate with initial hospital/ambulance data"""
-    conn = sqlite3.connect('emergency.db')
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     
     # Create tables
@@ -1833,7 +1837,7 @@ def api_seed_database():
         force = request.args.get('force', 'false').lower() == 'true'
         if force:
             # Force re-seed: delete existing data first
-            conn = sqlite3.connect('emergency.db')
+            conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute("DELETE FROM hospitals")
             cur.execute("DELETE FROM ambulances")
@@ -1854,7 +1858,7 @@ def api_seed_database():
 def db_check():
     """Debug: Check what's in the database"""
     try:
-        conn = sqlite3.connect('emergency.db')
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
         # Get table list
