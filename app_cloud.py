@@ -1830,11 +1830,73 @@ def seed_database():
 def api_seed_database():
     """Manually trigger database seeding"""
     try:
+        force = request.args.get('force', 'false').lower() == 'true'
+        if force:
+            # Force re-seed: delete existing data first
+            conn = sqlite3.connect('emergency.db')
+            cur = conn.cursor()
+            cur.execute("DELETE FROM hospitals")
+            cur.execute("DELETE FROM ambulances")
+            conn.commit()
+            conn.close()
+            logging.info("Force cleared hospitals and ambulances tables")
+        
         was_seeded = seed_database()
         if was_seeded:
             return jsonify({"status": "success", "message": "Database seeded with 10 hospitals and 20 ambulances!"})
         else:
             return jsonify({"status": "already_seeded", "message": "Database already has data."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/db_check')
+def db_check():
+    """Debug: Check what's in the database"""
+    try:
+        conn = sqlite3.connect('emergency.db')
+        cur = conn.cursor()
+        
+        # Get table list
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [r[0] for r in cur.fetchall()]
+        
+        # Count rows in each table
+        counts = {}
+        for table in tables:
+            cur.execute(f"SELECT COUNT(*) FROM {table}")
+            counts[table] = cur.fetchone()[0]
+        
+        # Sample hospital
+        sample_hospital = None
+        try:
+            cur.execute("SELECT * FROM hospitals LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                cols = [d[0] for d in cur.description]
+                sample_hospital = dict(zip(cols, row))
+        except:
+            pass
+        
+        # Sample ambulance
+        sample_ambulance = None
+        try:
+            cur.execute("SELECT * FROM ambulances LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                cols = [d[0] for d in cur.description]
+                sample_ambulance = dict(zip(cols, row))
+        except:
+            pass
+        
+        conn.close()
+        
+        return jsonify({
+            "tables": tables,
+            "row_counts": counts,
+            "sample_hospital": sample_hospital,
+            "sample_ambulance": sample_ambulance
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
