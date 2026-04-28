@@ -1765,7 +1765,84 @@ def system_status():
     })
 
 
+# ==================== DATABASE AUTO-SEED ====================
+
+def seed_database():
+    """Create tables and populate with initial hospital/ambulance data"""
+    conn = sqlite3.connect('emergency.db')
+    cur = conn.cursor()
+    
+    # Create tables
+    cur.execute('''CREATE TABLE IF NOT EXISTS accident_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        camera_id TEXT, latitude REAL, longitude REAL, ambulance_id TEXT, driver_name TEXT,
+        driver_phone TEXT, hospital_name TEXT, hospital_phone TEXT, response_time_seconds INTEGER,
+        image_path TEXT, sms_status TEXT, route_link TEXT, status TEXT DEFAULT 'pending', completed_at DATETIME)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS accidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, latitude REAL, longitude REAL, reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS hospitals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone_no TEXT NOT NULL,
+        latitude REAL NOT NULL, longitude REAL NOT NULL, available_beds INTEGER DEFAULT 10, icu_beds INTEGER DEFAULT 2)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS ambulances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ambulance_no TEXT NOT NULL, driver_name TEXT NOT NULL,
+        phone_no TEXT NOT NULL, latitude REAL NOT NULL, longitude REAL NOT NULL,
+        hospital_id INTEGER, status TEXT DEFAULT 'available', current_latitude REAL, current_longitude REAL,
+        FOREIGN KEY (hospital_id) REFERENCES hospitals(id))''')
+    conn.commit()
+    
+    # Check if data already exists
+    cur.execute("SELECT COUNT(*) FROM hospitals")
+    count = cur.fetchone()[0]
+    if count > 0:
+        conn.close()
+        return False  # Already seeded
+    
+    # Seed hospitals
+    hospitals = [
+        ('Kamla Nehru Hospital', '+919356992477', 18.5204, 73.8567, 15, 3),
+        ('Sassoon General Hospital', '+919356992477', 18.5250, 73.8500, 25, 6),
+        ('Ruby Hall Clinic', '+919356992477', 18.5249, 73.8478, 30, 8),
+        ('Deenanath Mangeshkar Hospital', '+919356992477', 18.5150, 73.8200, 22, 5),
+        ('Jehangir Hospital', '+919356992477', 18.5267, 73.8489, 28, 7),
+        ('Poona Hospital', '+919356992477', 18.5280, 73.8450, 18, 4),
+        ('Bharati Hospital', '+919356992477', 18.4500, 73.8700, 15, 3),
+        ('Noble Hospital', '+919356992477', 18.5000, 73.9000, 14, 3),
+        ('Aditya Birla Memorial Hospital', '+919356992477', 18.5600, 73.7900, 35, 10),
+        ('Lokmanya Hospital', '+919356992477', 18.6200, 73.8100, 12, 2),
+    ]
+    cur.executemany('INSERT INTO hospitals (name, phone_no, latitude, longitude, available_beds, icu_beds) VALUES (?, ?, ?, ?, ?, ?)', hospitals)
+    
+    # Seed ambulances (2 per hospital)
+    for i, h in enumerate(hospitals, 1):
+        lat, lon = h[2], h[3]
+        cur.execute('INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (f'AMB{i*2-1:03}', 'Driver A', '+919356992477', lat+0.001, lon+0.001, i, 'available', lat+0.001, lon+0.001))
+        cur.execute('INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (f'AMB{i*2:03}', 'Driver B', '+919356992477', lat-0.001, lon-0.001, i, 'available', lat-0.001, lon-0.001))
+    
+    conn.commit()
+    conn.close()
+    logging.info("Database seeded with hospitals and ambulances!")
+    return True
+
+
+@app.route('/api/seed_database', methods=['GET', 'POST'])
+def api_seed_database():
+    """Manually trigger database seeding"""
+    try:
+        was_seeded = seed_database()
+        if was_seeded:
+            return jsonify({"status": "success", "message": "Database seeded with 10 hospitals and 20 ambulances!"})
+        else:
+            return jsonify({"status": "already_seeded", "message": "Database already has data."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Auto-seed database on startup
+seed_database()
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(debug=False, host='0.0.0.0', port=port)
