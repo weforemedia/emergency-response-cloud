@@ -100,34 +100,109 @@ BASELINE_HOSPITALS = [
 ]
 
 
-def _ensure_baseline_data():
-    """Ensure baseline hospitals and ambulances exist in the database."""
+def init_database():
+    """
+    Initialize the database: create all tables if they don't exist,
+    and populate with baseline hospital + ambulance data if empty.
+    This runs on every startup so the cloud system always has data,
+    even on Render's ephemeral filesystem where the DB is recreated.
+    This matches exactly what database_setup.py does for the local system.
+    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     
+    # ===== CREATE TABLES (IF NOT EXISTS) =====
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS accident_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        camera_id TEXT,
+        latitude REAL,
+        longitude REAL,
+        ambulance_id TEXT,
+        driver_name TEXT,
+        driver_phone TEXT,
+        hospital_name TEXT,
+        hospital_phone TEXT,
+        response_time_seconds INTEGER,
+        image_path TEXT,
+        sms_status TEXT,
+        route_link TEXT,
+        status TEXT DEFAULT 'pending',
+        completed_at DATETIME
+    )
+    ''')
+    
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS accidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        latitude REAL,
+        longitude REAL,
+        reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS hospitals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        phone_no TEXT NOT NULL,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        available_beds INTEGER DEFAULT 10,
+        icu_beds INTEGER DEFAULT 2
+    )
+    ''')
+    
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS ambulances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ambulance_no TEXT NOT NULL,
+        driver_name TEXT NOT NULL,
+        phone_no TEXT NOT NULL,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        hospital_id INTEGER,
+        status TEXT DEFAULT 'available',
+        current_latitude REAL,
+        current_longitude REAL,
+        FOREIGN KEY (hospital_id) REFERENCES hospitals(id)
+    )
+    ''')
+    
+    conn.commit()
+    
+    # ===== SEED BASELINE DATA IF EMPTY =====
     cur.execute("SELECT COUNT(*) FROM hospitals")
     count = cur.fetchone()[0]
     
     if count == 0:
-        logging.info("📋 Loading baseline hospital data...")
+        logging.info("📋 Database empty — loading baseline hospital data (same as local system)...")
+        
         for h in BASELINE_HOSPITALS:
             cur.execute(
                 'INSERT INTO hospitals (name, phone_no, latitude, longitude, available_beds, icu_beds) VALUES (?, ?, ?, ?, ?, ?)',
                 h
             )
-            hid = cur.lastrowid
-            # Two ambulances per hospital
-            for j in range(2):
-                amb_no = f"AMB{hid*2-1+j:03d}"
-                driver = f"Driver {'ABCDEFGH'[j % 8]}"
-                a_lat = h[2] + random.uniform(-0.002, 0.002)
-                a_lon = h[3] + random.uniform(-0.002, 0.002)
-                cur.execute(
-                    'INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    (amb_no, driver, h[1], a_lat, a_lon, hid, 'available', a_lat, a_lon)
-                )
+        
+        # Generate ambulances for each hospital (two per hospital, same as database_setup.py)
+        for i, hospital in enumerate(BASELINE_HOSPITALS, start=1):
+            lat, lon = hospital[2], hospital[3]
+            hospital_id = i
+            
+            cur.execute(
+                'INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (f'AMB{i*2-1:03}', 'Driver A', '+919356992477', lat + 0.001, lon + 0.001, hospital_id, 'available', lat + 0.001, lon + 0.001)
+            )
+            cur.execute(
+                'INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (f'AMB{i*2:03}', 'Driver B', '+919356992477', lat - 0.001, lon - 0.001, hospital_id, 'available', lat - 0.001, lon - 0.001)
+            )
+        
         conn.commit()
-        logging.info(f"✅ Loaded {len(BASELINE_HOSPITALS)} baseline hospitals + ambulances")
+        logging.info(f"✅ Database seeded: {len(BASELINE_HOSPITALS)} hospitals + {len(BASELINE_HOSPITALS) * 2} ambulances")
+    else:
+        logging.info(f"✅ Database already has {count} hospitals — skipping seed.")
     
     conn.close()
 
@@ -143,7 +218,7 @@ def fetch_and_update_local_resources(lat, lon):
         logging.info(f"🔄 Fetching ALL local resources for {lat}, {lon}...")
         
         # Ensure baseline data exists first
-        _ensure_baseline_data()
+        init_database()
         
         SEARCH_RADIUS = 15000  # 15km radius for comprehensive coverage
         
@@ -2236,8 +2311,8 @@ def db_check():
         return jsonify({"error": str(e)}), 500
 
 
-# Auto-seed database on startup
-seed_database()
+# Initialize database on startup (create tables + seed baseline data)
+init_database()
 
 
 if __name__ == '__main__':
