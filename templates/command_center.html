@@ -686,12 +686,50 @@
         }
 
         function fetchAmbulancesAndHospitals(lat, lon) {
-            // Fetch nearby ambulances
+            // Show loading state
+            const ambulanceList = document.getElementById('ambulanceList');
+            const hospitalList = document.getElementById('hospitalList');
+            ambulanceList.innerHTML = '<li class="list-group-item text-center"><em>🔄 Searching for nearby ambulances...</em></li>';
+            hospitalList.innerHTML = '<li class="list-group-item text-center"><em>🔄 Searching for nearby hospitals & clinics...</em></li>';
+
+            // Clear old markers from map
+            Object.values(ambulanceMarkers).forEach(m => map.removeLayer(m));
+            Object.values(hospitalMarkers).forEach(m => map.removeLayer(m));
+            ambulanceMarkers = {};
+            hospitalMarkers = {};
+
+            // Step 1: Refresh the database with real-time data from Overpass API
+            fetch('/refresh_nearby_resources', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ latitude: lat, longitude: lon })
+            })
+            .then(res => res.json())
+            .then(refreshResult => {
+                console.log('🔄 Resource refresh result:', refreshResult);
+                // Step 2: Now fetch the updated ambulance and hospital lists
+                loadAmbulanceList(lat, lon);
+                loadHospitalList(lat, lon);
+            })
+            .catch(error => {
+                console.error('Error refreshing resources:', error);
+                // Even if refresh fails, still try loading from existing DB
+                loadAmbulanceList(lat, lon);
+                loadHospitalList(lat, lon);
+            });
+        }
+
+        function loadAmbulanceList(lat, lon) {
             fetch(`/get_ambulances?latitude=${lat}&longitude=${lon}`)
                 .then(response => response.json())
                 .then(ambulances => {
                     const ambulanceList = document.getElementById('ambulanceList');
-                    ambulanceList.innerHTML = ''; // Clear existing
+                    ambulanceList.innerHTML = '';
+
+                    if (ambulances.length === 0) {
+                        ambulanceList.innerHTML = '<li class="list-group-item text-center text-muted">No ambulances found nearby</li>';
+                        return;
+                    }
 
                     ambulances.forEach(ambulance => {
                         const li = document.createElement('li');
@@ -730,14 +768,21 @@
                     if (autoDetectionData && autoDetectionData.auto_selected_ambulance) {
                         highlightSelectedAmbulance(autoDetectionData.auto_selected_ambulance.ambulance_no);
                     }
-                });
+                })
+                .catch(err => console.error('Error loading ambulances:', err));
+        }
 
-            // Fetch nearby hospitals
+        function loadHospitalList(lat, lon) {
             fetch(`/get_hospitals?latitude=${lat}&longitude=${lon}`)
                 .then(response => response.json())
                 .then(hospitals => {
                     const hospitalList = document.getElementById('hospitalList');
-                    hospitalList.innerHTML = ''; // Clear existing
+                    hospitalList.innerHTML = '';
+
+                    if (hospitals.length === 0) {
+                        hospitalList.innerHTML = '<li class="list-group-item text-center text-muted">No hospitals found nearby</li>';
+                        return;
+                    }
 
                     hospitals.forEach(hospital => {
                         const li = document.createElement('li');
@@ -776,7 +821,8 @@
                     if (autoDetectionData && autoDetectionData.auto_selected_hospital) {
                         highlightSelectedHospital(autoDetectionData.auto_selected_hospital.name);
                     }
-                });
+                })
+                .catch(err => console.error('Error loading hospitals:', err));
         }
 
         // Send selected locations to Control Room

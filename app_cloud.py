@@ -76,101 +76,196 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 def fetch_and_update_local_resources(lat, lon):
     """
-    Fetch hospitals from OpenStreetMap (Overpass API) near the given location
-    and update the local database. Also generates dummy ambulances.
+    Fetch ALL hospitals, clinics, health facilities, and ambulance services
+    from OpenStreetMap (Overpass API) near the given location and update the
+    local database. Uses wide search radius and multiple facility types
+    for maximum coverage.
     """
     try:
-        logging.info(f"🔄 Fetching local resources for {lat}, {lon}...")
+        logging.info(f"🔄 Fetching ALL local resources for {lat}, {lon}...")
         
-        # 1. Fetch Hospitals from Overpass API
+        SEARCH_RADIUS = 15000  # 15km radius for comprehensive coverage
+        
         overpass_url = "https://overpass-api.de/api/interpreter"
-        query = f"""
-        [out:json];
+        headers = {'User-Agent': 'EmergencyResponseApp/1.0'}
+        
+        # ====== QUERY 1: All medical facilities (hospitals, clinics, health centres) ======
+        hospital_query = f"""
+        [out:json][timeout:30];
         (
-          node["amenity"="hospital"](around:5000, {lat}, {lon});
-          way["amenity"="hospital"](around:5000, {lat}, {lon});
-          relation["amenity"="hospital"](around:5000, {lat}, {lon});
+          node["amenity"="hospital"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["amenity"="hospital"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          relation["amenity"="hospital"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          node["amenity"="clinic"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["amenity"="clinic"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          node["healthcare"="hospital"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["healthcare"="hospital"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          node["healthcare"="clinic"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["healthcare"="clinic"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          node["amenity"="doctors"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["amenity"="doctors"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          node["healthcare"="centre"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["healthcare"="centre"](around:{SEARCH_RADIUS}, {lat}, {lon});
         );
         out center;
         """
-        headers = {'User-Agent': 'EmergencyResponseApp/1.0'}
-        response = requests.post(overpass_url, data=query, headers=headers, timeout=10)
+        
+        logging.info(f"📡 Querying Overpass API with {SEARCH_RADIUS}m radius...")
+        response = requests.post(overpass_url, data=hospital_query, headers=headers, timeout=30)
         
         if response.status_code != 200:
-            logging.error("Failed to fetch from Overpass API")
+            logging.error(f"Overpass API returned status {response.status_code}")
             return False
             
         data = response.json()
-        elements = data.get('elements', [])
+        hospital_elements = data.get('elements', [])
+        logging.info(f"📍 Found {len(hospital_elements)} medical facilities nearby")
         
-        logging.info(f"Found {len(elements)} hospitals nearby")
+        # ====== QUERY 2: Ambulance stations ======
+        ambulance_query = f"""
+        [out:json][timeout:30];
+        (
+          node["emergency"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["emergency"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          node["amenity"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+          way["amenity"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+        );
+        out center;
+        """
         
-        if not elements:
-            logging.warning("No hospitals found nearby via API.")
+        ambulance_stations = []
+        try:
+            amb_response = requests.post(overpass_url, data=ambulance_query, headers=headers, timeout=30)
+            if amb_response.status_code == 200:
+                amb_data = amb_response.json()
+                ambulance_stations = amb_data.get('elements', [])
+                logging.info(f"🚑 Found {len(ambulance_stations)} ambulance stations nearby")
+        except Exception as amb_err:
+            logging.warning(f"Ambulance station query failed: {amb_err}")
+        
+        if not hospital_elements:
+            logging.warning("No medical facilities found nearby via API.")
             return False
             
-        # 2. Update Database
+        # ====== UPDATE DATABASE ======
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
-        # Clear existing non-relevant data (optional: strategy could be append, but for demo replace is cleaner)
-        # For this hackathon demo, we'll clear to ensure we only show relevant local data
         cur.execute("DELETE FROM ambulances")
         cur.execute("DELETE FROM hospitals")
         
         hospitals_count = 0
+        seen_names = set()  # avoid duplicates
+        amb_counter = 1
         
-        for element in elements:
-            # Get name
-            name = element.get('tags', {}).get('name', 'Unknown Hospital')
-            if name == 'Unknown Hospital':
+        for element in hospital_elements:
+            tags = element.get('tags', {})
+            
+            # Try multiple name fields for better coverage
+            name = (tags.get('name') or 
+                    tags.get('name:en') or 
+                    tags.get('operator') or 
+                    tags.get('brand') or
+                    tags.get('short_name') or '')
+            
+            if not name or name.strip() == '':
                 continue
                 
+            name = name.strip()
+            
+            # Skip exact duplicates
+            if name.lower() in seen_names:
+                continue
+            seen_names.add(name.lower())
+            
             # Get coordinates
             if element['type'] == 'node':
-                h_lat, h_lon = element['lat'], element['lon']
+                h_lat, h_lon = element.get('lat'), element.get('lon')
             else:
-                h_lat, h_lon = element.get('center', {}).get('lat'), element.get('center', {}).get('lon')
+                center = element.get('center', {})
+                h_lat, h_lon = center.get('lat'), center.get('lon')
                 
-            if not h_lat or not h_lon:
+            if h_lat is None or h_lon is None:
                 continue
-                
-            # Insert hospital
-            # Phone number is dummy as API rarely has it, same for beds
-            phone_no = "+919356992477" 
-            avail_beds = random.randint(5, 30)
-            icu_beds = random.randint(1, 8)
+            
+            # Get phone from OSM if available, otherwise use default
+            phone_no = tags.get('phone') or tags.get('contact:phone') or "+919356992477"
+            
+            # Determine facility type for bed count estimation
+            amenity = tags.get('amenity', '')
+            healthcare = tags.get('healthcare', '')
+            is_hospital = (amenity == 'hospital' or healthcare == 'hospital')
+            
+            avail_beds = random.randint(10, 50) if is_hospital else random.randint(3, 15)
+            icu_beds = random.randint(2, 10) if is_hospital else random.randint(0, 3)
+            
+            # Add facility type suffix for clinics
+            display_name = name
+            if amenity == 'clinic' or healthcare == 'clinic':
+                if 'clinic' not in name.lower() and 'hospital' not in name.lower():
+                    display_name = f"{name} (Clinic)"
             
             cur.execute(
                 'INSERT INTO hospitals (name, phone_no, latitude, longitude, available_beds, icu_beds) VALUES (?, ?, ?, ?, ?, ?)',
-                (name, phone_no, h_lat, h_lon, avail_beds, icu_beds)
+                (display_name, phone_no, h_lat, h_lon, avail_beds, icu_beds)
             )
             hospital_id = cur.lastrowid
             hospitals_count += 1
             
-            # 3. Generate 1-2 Ambulances for this hospital
-            num_ambs = random.randint(1, 2)
-            for i in range(num_ambs):
-                amb_no = f"AMB-{random.randint(100, 999)}"
-                driver_name = f"Driver {random.choice(['A', 'B', 'C', 'D'])}"
+            # Generate 2 ambulances per hospital
+            for i in range(2):
+                amb_no = f"AMB{amb_counter:03d}"
+                driver_name = f"Driver {random.choice(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'])}"
                 
-                # Position ambulance slightly offset from hospital
-                a_lat = h_lat + random.uniform(-0.005, 0.005)
-                a_lon = h_lon + random.uniform(-0.005, 0.005)
+                a_lat = h_lat + random.uniform(-0.003, 0.003)
+                a_lon = h_lon + random.uniform(-0.003, 0.003)
                 
                 cur.execute(
                     'INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     (amb_no, driver_name, phone_no, a_lat, a_lon, hospital_id, 'available', a_lat, a_lon)
                 )
+                amb_counter += 1
+        
+        # Add ambulances from actual ambulance stations
+        for station in ambulance_stations:
+            tags = station.get('tags', {})
+            station_name = tags.get('name') or tags.get('operator') or 'Ambulance Station'
+            
+            if station['type'] == 'node':
+                s_lat, s_lon = station.get('lat'), station.get('lon')
+            else:
+                center = station.get('center', {})
+                s_lat, s_lon = center.get('lat'), center.get('lon')
+                
+            if s_lat is None or s_lon is None:
+                continue
+            
+            phone_no = tags.get('phone') or tags.get('contact:phone') or "+919356992477"
+            
+            # Generate 3 ambulances per ambulance station
+            for i in range(3):
+                amb_no = f"AMB{amb_counter:03d}"
+                driver_name = f"Driver {random.choice(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'])}"
+                
+                a_lat = s_lat + random.uniform(-0.002, 0.002)
+                a_lon = s_lon + random.uniform(-0.002, 0.002)
+                
+                cur.execute(
+                    'INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (amb_no, driver_name, phone_no, a_lat, a_lon, None, 'available', a_lat, a_lon)
+                )
+                amb_counter += 1
         
         conn.commit()
         conn.close()
         
-        logging.info(f"✅ Database updated: {hospitals_count} hospitals and their ambulances added.")
+        logging.info(f"✅ Database updated: {hospitals_count} medical facilities and {amb_counter - 1} ambulances added.")
         return True
         
     except Exception as e:
         logging.error(f"❌ Error updating local resources: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -359,6 +454,54 @@ def send_to_control_room():
         return jsonify({"status": "success", "message": "Data stored"})
     except Exception as e:
         logging.error(f"/send_to_control_room: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/refresh_nearby_resources', methods=['POST'])
+def refresh_nearby_resources():
+    """
+    Refresh the database with hospitals and ambulances near a specific
+    accident location. Called by the command center whenever a new accident
+    location is selected so that results are always accurate and local.
+    """
+    try:
+        data = request.json
+        lat = data.get('latitude')
+        lon = data.get('longitude')
+        
+        if lat is None or lon is None:
+            return jsonify({"error": "Missing latitude or longitude"}), 400
+        
+        lat = float(lat)
+        lon = float(lon)
+        
+        logging.info(f"🔄 Refreshing nearby resources for accident at {lat}, {lon}")
+        
+        success = fetch_and_update_local_resources(lat, lon)
+        
+        if success:
+            # Count what we have now
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM hospitals")
+            h_count = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM ambulances")
+            a_count = cur.fetchone()[0]
+            conn.close()
+            
+            return jsonify({
+                "status": "success",
+                "message": f"Found {h_count} hospitals and {a_count} ambulances near accident location",
+                "hospitals_count": h_count,
+                "ambulances_count": a_count
+            })
+        else:
+            return jsonify({
+                "status": "partial",
+                "message": "Could not fetch fresh data from API. Using existing database."
+            })
+    except Exception as e:
+        logging.error(f"Error in /refresh_nearby_resources: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -857,6 +1000,10 @@ def trigger_auto_response():
         logging.info(f"✅ Accident location stored globally: ({lat}, {lon}) from camera {camera_id}")
         if image_url:
             logging.info(f"📸 Accident image: {image_url}")
+        
+        # ========== STEP 0: Refresh nearby resources for accident location ==========
+        logging.info(f"🔄 Refreshing nearby resources for accident at {lat}, {lon}...")
+        fetch_and_update_local_resources(float(lat), float(lon))
         
         # ========== STEP 1: Find nearest ambulance ==========
         conn = sqlite3.connect(DB_PATH)
