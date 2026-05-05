@@ -199,6 +199,17 @@ def trigger_automatic_emergency_response(lat, lon, camera_id, frame=None):
         print(f"🌐 Server: {CLOUD_SERVER_URL}")
         print("=" * 60)
 
+        # Re-fetch latest GPS location before sending alert
+        fresh_lat, fresh_lon = get_gps_location_from_server()
+        if fresh_lat and fresh_lon:
+            lat, lon = fresh_lat, fresh_lon
+            # Update global config too
+            CAMERA_CONFIG["latitude"] = lat
+            CAMERA_CONFIG["longitude"] = lon
+            print(f"[INFO] 📍 Using fresh GPS: {lat}, {lon}")
+        else:
+            print(f"[INFO] 📍 Using cached GPS: {lat}, {lon}")
+
         image_url = None
         if frame is not None:
             filename, filepath = save_accident_image(frame, camera_id)
@@ -372,9 +383,12 @@ def run_accident_detection():
                     emergency_triggered = True
                     last_accident_time = current_time
                     accident_frame = frame.copy()
+                    # Use latest stored location (trigger function will re-fetch fresh GPS)
+                    current_lat = CAMERA_CONFIG.get("latitude", lat)
+                    current_lon = CAMERA_CONFIG.get("longitude", lon)
                     threading.Thread(
                         target=trigger_automatic_emergency_response,
-                        args=(lat, lon, CAMERA_CONFIG["camera_id"], accident_frame),
+                        args=(current_lat, current_lon, CAMERA_CONFIG["camera_id"], accident_frame),
                         daemon=True
                     ).start()
 
