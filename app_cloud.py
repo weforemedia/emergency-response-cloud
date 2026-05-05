@@ -74,15 +74,76 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 # ==================== DYNAMIC DATA FETCHING ====================
 
+# ==================== STATIC BASELINE HOSPITALS (Pune region) ====================
+# These are always available as fallback even if Overpass API fails on cloud
+BASELINE_HOSPITALS = [
+    ('Kamla Nehru Hospital', '+919356992477', 18.5204, 73.8567, 15, 3),
+    ('Dr. Naidu Contagious Disease Hospital', '+919356992477', 18.5195, 73.8555, 12, 2),
+    ('Pune District Hospital (Pune Civil Hospital)', '+919356992477', 18.5300, 73.8000, 20, 5),
+    ('Sassoon General Hospital', '+919356992477', 18.5250, 73.8500, 25, 6),
+    ('Poona Hospital', '+919356992477', 18.5280, 73.8450, 18, 4),
+    ('Ruby Hall Clinic', '+919356992477', 18.5249, 73.8478, 30, 8),
+    ('Deenanath Mangeshkar Hospital', '+919356992477', 18.5150, 73.8200, 22, 5),
+    ('Bharati Hospital', '+919356992477', 18.4500, 73.8700, 15, 3),
+    ('Jehangir Hospital', '+919356992477', 18.5267, 73.8489, 28, 7),
+    ('Noble Hospital', '+919356992477', 18.5000, 73.9000, 14, 3),
+    ('Yashwantrao Chavan Memorial Hospital', '+919356992477', 18.6000, 73.8000, 20, 4),
+    ('Dr. Bansal Hospital', '+919356992477', 18.5500, 73.7500, 10, 2),
+    ('Sai Snehdeep Hospital', '+919356992477', 18.6100, 73.7800, 8, 1),
+    ('Aditya Birla Memorial Hospital', '+919356992477', 18.5600, 73.7900, 35, 10),
+    ('Lokmanya Hospital', '+919356992477', 18.6200, 73.8100, 12, 2),
+    ('Niramaya Hospital', '+919356992477', 18.6300, 73.8200, 10, 2),
+    ('Om Hospital', '+919356992477', 18.6400, 73.8300, 8, 1),
+    ('Sainath Hospital', '+919356992477', 18.6500, 73.8400, 10, 2),
+    ('Astha Hospital', '+919356992477', 18.6600, 73.8500, 12, 3),
+    ('Sushrut Hospital', '+919356992477', 18.6700, 73.8600, 15, 3),
+]
+
+
+def _ensure_baseline_data():
+    """Ensure baseline hospitals and ambulances exist in the database."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    cur.execute("SELECT COUNT(*) FROM hospitals")
+    count = cur.fetchone()[0]
+    
+    if count == 0:
+        logging.info("📋 Loading baseline hospital data...")
+        for h in BASELINE_HOSPITALS:
+            cur.execute(
+                'INSERT INTO hospitals (name, phone_no, latitude, longitude, available_beds, icu_beds) VALUES (?, ?, ?, ?, ?, ?)',
+                h
+            )
+            hid = cur.lastrowid
+            # Two ambulances per hospital
+            for j in range(2):
+                amb_no = f"AMB{hid*2-1+j:03d}"
+                driver = f"Driver {'ABCDEFGH'[j % 8]}"
+                a_lat = h[2] + random.uniform(-0.002, 0.002)
+                a_lon = h[3] + random.uniform(-0.002, 0.002)
+                cur.execute(
+                    'INSERT INTO ambulances (ambulance_no, driver_name, phone_no, latitude, longitude, hospital_id, status, current_latitude, current_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (amb_no, driver, h[1], a_lat, a_lon, hid, 'available', a_lat, a_lon)
+                )
+        conn.commit()
+        logging.info(f"✅ Loaded {len(BASELINE_HOSPITALS)} baseline hospitals + ambulances")
+    
+    conn.close()
+
+
 def fetch_and_update_local_resources(lat, lon):
     """
     Fetch ALL hospitals, clinics, health facilities, and ambulance services
-    from OpenStreetMap (Overpass API) near the given location and update the
-    local database. Uses wide search radius and multiple facility types
-    for maximum coverage.
+    from OpenStreetMap (Overpass API) near the given location and MERGE them
+    into the local database. Never deletes existing data — only adds new
+    facilities. If the API fails, baseline data is always preserved.
     """
     try:
         logging.info(f"🔄 Fetching ALL local resources for {lat}, {lon}...")
+        
+        # Ensure baseline data exists first
+        _ensure_baseline_data()
         
         SEARCH_RADIUS = 15000  # 15km radius for comprehensive coverage
         
@@ -111,52 +172,58 @@ def fetch_and_update_local_resources(lat, lon):
         """
         
         logging.info(f"📡 Querying Overpass API with {SEARCH_RADIUS}m radius...")
-        response = requests.post(overpass_url, data=hospital_query, headers=headers, timeout=30)
         
-        if response.status_code != 200:
-            logging.error(f"Overpass API returned status {response.status_code}")
-            return False
-            
-        data = response.json()
-        hospital_elements = data.get('elements', [])
-        logging.info(f"📍 Found {len(hospital_elements)} medical facilities nearby")
+        hospital_elements = []
+        try:
+            response = requests.post(overpass_url, data=hospital_query, headers=headers, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                hospital_elements = data.get('elements', [])
+                logging.info(f"📍 Found {len(hospital_elements)} medical facilities from API")
+            else:
+                logging.warning(f"Overpass API returned status {response.status_code}, keeping existing data")
+        except Exception as api_err:
+            logging.warning(f"Overpass API failed: {api_err}, keeping existing data")
         
         # ====== QUERY 2: Ambulance stations ======
-        ambulance_query = f"""
-        [out:json][timeout:30];
-        (
-          node["emergency"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
-          way["emergency"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
-          node["amenity"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
-          way["amenity"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
-        );
-        out center;
-        """
-        
         ambulance_stations = []
         try:
+            ambulance_query = f"""
+            [out:json][timeout:30];
+            (
+              node["emergency"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+              way["emergency"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+              node["amenity"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+              way["amenity"="ambulance_station"](around:{SEARCH_RADIUS}, {lat}, {lon});
+            );
+            out center;
+            """
             amb_response = requests.post(overpass_url, data=ambulance_query, headers=headers, timeout=30)
             if amb_response.status_code == 200:
                 amb_data = amb_response.json()
                 ambulance_stations = amb_data.get('elements', [])
-                logging.info(f"🚑 Found {len(ambulance_stations)} ambulance stations nearby")
+                logging.info(f"🚑 Found {len(ambulance_stations)} ambulance stations from API")
         except Exception as amb_err:
             logging.warning(f"Ambulance station query failed: {amb_err}")
         
-        if not hospital_elements:
-            logging.warning("No medical facilities found nearby via API.")
-            return False
+        if not hospital_elements and not ambulance_stations:
+            logging.info("⚠️ No API results, but baseline data is preserved in database.")
+            return True  # Return True because baseline data still exists
             
-        # ====== UPDATE DATABASE ======
+        # ====== MERGE INTO DATABASE (never delete existing!) ======
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
-        cur.execute("DELETE FROM ambulances")
-        cur.execute("DELETE FROM hospitals")
+        # Get existing hospital names to avoid duplicates
+        cur.execute("SELECT LOWER(name) FROM hospitals")
+        existing_names = set(row[0] for row in cur.fetchall())
         
-        hospitals_count = 0
-        seen_names = set()  # avoid duplicates
-        amb_counter = 1
+        # Get next ambulance counter
+        cur.execute("SELECT MAX(CAST(REPLACE(REPLACE(ambulance_no, 'AMB', ''), '-', '') AS INTEGER)) FROM ambulances")
+        max_amb = cur.fetchone()[0] or 0
+        amb_counter = max_amb + 1
+        
+        new_hospitals = 0
         
         for element in hospital_elements:
             tags = element.get('tags', {})
@@ -173,10 +240,10 @@ def fetch_and_update_local_resources(lat, lon):
                 
             name = name.strip()
             
-            # Skip exact duplicates
-            if name.lower() in seen_names:
+            # Skip if already exists
+            if name.lower() in existing_names:
                 continue
-            seen_names.add(name.lower())
+            existing_names.add(name.lower())
             
             # Get coordinates
             if element['type'] == 'node':
@@ -210,7 +277,7 @@ def fetch_and_update_local_resources(lat, lon):
                 (display_name, phone_no, h_lat, h_lon, avail_beds, icu_beds)
             )
             hospital_id = cur.lastrowid
-            hospitals_count += 1
+            new_hospitals += 1
             
             # Generate 2 ambulances per hospital
             for i in range(2):
@@ -257,9 +324,16 @@ def fetch_and_update_local_resources(lat, lon):
                 amb_counter += 1
         
         conn.commit()
+        
+        # Get total counts for logging
+        cur2 = conn.cursor()
+        cur2.execute("SELECT COUNT(*) FROM hospitals")
+        total_hospitals = cur2.fetchone()[0]
+        cur2.execute("SELECT COUNT(*) FROM ambulances")
+        total_ambulances = cur2.fetchone()[0]
         conn.close()
         
-        logging.info(f"✅ Database updated: {hospitals_count} medical facilities and {amb_counter - 1} ambulances added.")
+        logging.info(f"✅ Database updated: {new_hospitals} new facilities added from API. Total: {total_hospitals} hospitals, {total_ambulances} ambulances.")
         return True
         
     except Exception as e:
