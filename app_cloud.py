@@ -1138,6 +1138,10 @@ def trigger_auto_response():
         if not lat or not lon:
             return jsonify({"error": "Missing location data"}), 400
         
+        # Cast to float for distance calculations
+        lat = float(lat)
+        lon = float(lon)
+        
         # Store in GLOBAL storage (not session) so all clients can see it
         global auto_detection_data
         auto_detection_data['accident_location'] = (lat, lon)
@@ -1152,7 +1156,7 @@ def trigger_auto_response():
         
         # ========== STEP 0: Refresh nearby resources for accident location ==========
         logging.info(f"🔄 Refreshing nearby resources for accident at {lat}, {lon}...")
-        fetch_and_update_local_resources(float(lat), float(lon))
+        fetch_and_update_local_resources(lat, lon)
         
         # ========== STEP 1: Find nearest ambulance ==========
         conn = sqlite3.connect(DB_PATH)
