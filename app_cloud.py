@@ -567,7 +567,10 @@ def wifi_locate():
         if google_api_key:
             try:
                 google_url = f"https://www.googleapis.com/geolocation/v1/geolocate?key={google_api_key}"
-                google_payload = {"wifiAccessPoints": wifi_aps}
+                google_payload = {
+                    "considerIp": False,
+                    "wifiAccessPoints": wifi_aps
+                }
                 resp = requests.post(google_url, json=google_payload, timeout=10)
                 if resp.status_code == 200:
                     result = resp.json()
@@ -634,24 +637,15 @@ def wifi_locate():
                 "source": "browser_gps_fallback"
             })
         
-        # ===== METHOD 4: IP-based geolocation as last resort =====
-        try:
-            ip_resp = requests.get("http://ip-api.com/json/", timeout=5)
-            if ip_resp.status_code == 200:
-                ip_data = ip_resp.json()
-                lat = ip_data.get("lat")
-                lon = ip_data.get("lon")
-                if lat and lon:
-                    logging.info(f"[WIFI_LOCATE] IP fallback: {lat}, {lon}")
-                    return jsonify({
-                        "status": "success",
-                        "latitude": lat,
-                        "longitude": lon,
-                        "accuracy": 5000,
-                        "source": "ip_geolocation"
-                    })
-        except Exception as e:
-            logging.warning(f"[WIFI_LOCATE] IP fallback error: {e}")
+        # ===== METHOD 4: Hardcoded Fallback (Pune) =====
+        logging.info("[WIFI_LOCATE] Falling back to default Pune location")
+        return jsonify({
+            "status": "success",
+            "latitude": 18.5204,
+            "longitude": 73.8567,
+            "accuracy": 10000,
+            "source": "default_fallback"
+        })
         
         logging.error("[WIFI_LOCATE] All geolocation methods failed")
         return jsonify({"error": "Could not determine location"}), 500
