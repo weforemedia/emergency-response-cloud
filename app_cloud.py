@@ -545,6 +545,122 @@ def get_device_location():
     })
 
 
+@app.route('/api/wifi_locate', methods=['POST'])
+def wifi_locate():
+    """
+    WiFi-based geolocation for ESP32 when GPS has no fix.
+    Receives BSSID scan data from ESP32 and returns coordinates.
+    Tries: Google Geolocation API → Mozilla Location Service → IP-based fallback.
+    """
+    try:
+        data = request.json
+        wifi_aps = data.get('wifiAccessPoints', [])
+        
+        if not wifi_aps:
+            logging.warning("[WIFI_LOCATE] No WiFi access points received")
+            return jsonify({"error": "No WiFi data"}), 400
+        
+        logging.info(f"[WIFI_LOCATE] Received {len(wifi_aps)} WiFi access points")
+        
+        # ===== METHOD 1: Google Geolocation API (if key is configured) =====
+        google_api_key = os.environ.get('GOOGLE_GEOLOCATION_API_KEY', '')
+        if google_api_key:
+            try:
+                google_url = f"https://www.googleapis.com/geolocation/v1/geolocate?key={google_api_key}"
+                google_payload = {"wifiAccessPoints": wifi_aps}
+                resp = requests.post(google_url, json=google_payload, timeout=10)
+                if resp.status_code == 200:
+                    result = resp.json()
+                    loc = result.get("location", {})
+                    lat = loc.get("lat")
+                    lng = loc.get("lng")
+                    accuracy = result.get("accuracy", 0)
+                    if lat and lng:
+                        logging.info(f"[WIFI_LOCATE] Google API: {lat}, {lng} (accuracy: {accuracy}m)")
+                        return jsonify({
+                            "status": "success",
+                            "latitude": lat,
+                            "longitude": lng,
+                            "accuracy": accuracy,
+                            "source": "google_geolocation"
+                        })
+                else:
+                    logging.warning(f"[WIFI_LOCATE] Google API failed: {resp.status_code}")
+            except Exception as e:
+                logging.warning(f"[WIFI_LOCATE] Google API error: {e}")
+        
+        # ===== METHOD 2: Mozilla Location Service (free, no key needed) =====
+        try:
+            mozilla_url = "https://location.services.mozilla.com/v1/geolocate?key=test"
+            mozilla_payload = {
+                "wifiAccessPoints": [
+                    {
+                        "macAddress": ap.get("macAddress", ""),
+                        "signalStrength": ap.get("signalStrength", -70),
+                        "channel": ap.get("channel", 0)
+                    }
+                    for ap in wifi_aps
+                ]
+            }
+            resp = requests.post(mozilla_url, json=mozilla_payload, timeout=10)
+            if resp.status_code == 200:
+                result = resp.json()
+                loc = result.get("location", {})
+                lat = loc.get("lat")
+                lng = loc.get("lng")
+                accuracy = result.get("accuracy", 0)
+                if lat and lng:
+                    logging.info(f"[WIFI_LOCATE] Mozilla API: {lat}, {lng} (accuracy: {accuracy}m)")
+                    return jsonify({
+                        "status": "success",
+                        "latitude": lat,
+                        "longitude": lng,
+                        "accuracy": accuracy,
+                        "source": "mozilla_location"
+                    })
+            else:
+                logging.warning(f"[WIFI_LOCATE] Mozilla API: HTTP {resp.status_code}")
+        except Exception as e:
+            logging.warning(f"[WIFI_LOCATE] Mozilla API error: {e}")
+        
+        # ===== METHOD 3: Use device location if already set via browser =====
+        if device_gps_location.get('latitude') is not None:
+            logging.info(f"[WIFI_LOCATE] Using stored browser GPS as fallback")
+            return jsonify({
+                "status": "success",
+                "latitude": device_gps_location['latitude'],
+                "longitude": device_gps_location['longitude'],
+                "accuracy": device_gps_location.get('accuracy', 100),
+                "source": "browser_gps_fallback"
+            })
+        
+        # ===== METHOD 4: IP-based geolocation as last resort =====
+        try:
+            ip_resp = requests.get("http://ip-api.com/json/", timeout=5)
+            if ip_resp.status_code == 200:
+                ip_data = ip_resp.json()
+                lat = ip_data.get("lat")
+                lon = ip_data.get("lon")
+                if lat and lon:
+                    logging.info(f"[WIFI_LOCATE] IP fallback: {lat}, {lon}")
+                    return jsonify({
+                        "status": "success",
+                        "latitude": lat,
+                        "longitude": lon,
+                        "accuracy": 5000,
+                        "source": "ip_geolocation"
+                    })
+        except Exception as e:
+            logging.warning(f"[WIFI_LOCATE] IP fallback error: {e}")
+        
+        logging.error("[WIFI_LOCATE] All geolocation methods failed")
+        return jsonify({"error": "Could not determine location"}), 500
+        
+    except Exception as e:
+        logging.error(f"[WIFI_LOCATE] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/report_accident', methods=['POST'])
 def report_accident():
     """Receive accident coordinates"""
