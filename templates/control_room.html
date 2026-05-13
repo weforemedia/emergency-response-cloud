@@ -622,6 +622,100 @@
             .esp-stat-card {
                 min-width: 100px;
             }
+            h1 {
+                font-size: 1.3rem;
+                margin-top: 10px;
+            }
+            .lead {
+                font-size: 0.8rem;
+            }
+            #map {
+                height: 300px;
+                margin-top: 10px;
+                border-radius: 10px;
+            }
+            .stats-row {
+                gap: 8px;
+            }
+            .stat-item {
+                min-width: 70px;
+                padding: 12px 8px;
+            }
+            .stat-value {
+                font-size: 1.2rem;
+            }
+            .stat-label {
+                font-size: 0.65rem;
+            }
+            .tracking-panel {
+                padding: 14px;
+                border-radius: 12px;
+            }
+            .tracking-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+            .tracking-header > div {
+                display: flex;
+                flex-wrap: wrap;
+                width: 100%;
+            }
+            .btn-track, .btn-send {
+                font-size: 12px;
+                padding: 8px 14px;
+                flex: 1;
+                text-align: center;
+            }
+            .traffic-lights {
+                gap: 10px;
+            }
+            .traffic-light {
+                min-width: 55px;
+                padding: 8px;
+            }
+            .route-info {
+                flex-direction: column;
+                gap: 8px;
+            }
+            .nav-links {
+                flex-direction: column;
+                align-items: center;
+            }
+            .nav-link-btn {
+                width: 100%;
+                text-align: center;
+                padding: 10px;
+            }
+            .container.text-center.mt-4 .btn-send {
+                width: 100%;
+                margin: 5px 0;
+            }
+            /* Threshold controls: single column on mobile */
+            .tracking-panel div[style*="grid-template-columns: 1fr 1fr"] {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+        }
+
+        @media (max-width: 400px) {
+            h1 {
+                font-size: 1.1rem;
+            }
+            #map {
+                height: 220px;
+            }
+            .stats-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+            }
+            .esp-status-bar {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+            }
+            .alert-card {
+                padding: 12px 14px;
+            }
         }
     </style>
 </head>
@@ -1198,9 +1292,17 @@
         function formatTimestamp(ts) {
             if (!ts) return 'N/A';
             try {
-                const d = new Date(ts);
+                // If the timestamp doesn't have timezone info, treat it as IST
+                let tsStr = String(ts);
+                if (!tsStr.includes('+') && !tsStr.includes('Z') && !tsStr.includes('T')) {
+                    tsStr = tsStr.replace(' ', 'T') + '+05:30';
+                } else if (!tsStr.includes('+') && !tsStr.includes('Z') && tsStr.includes('T')) {
+                    tsStr = tsStr + '+05:30';
+                }
+                const d = new Date(tsStr);
                 if (isNaN(d.getTime())) return ts;
                 return d.toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
                     day: '2-digit', month: 'short', year: 'numeric',
                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                     hour12: true
@@ -1321,7 +1423,13 @@
                 let recentActivity = false;
                 if (latestAlert && latestAlert.timestamp) {
                     try {
-                        const alertTime = new Date(latestAlert.timestamp);
+                        let tsStr = String(latestAlert.timestamp);
+                        if (!tsStr.includes('+') && !tsStr.includes('Z') && !tsStr.includes('T')) {
+                            tsStr = tsStr.replace(' ', 'T') + '+05:30';
+                        } else if (!tsStr.includes('+') && !tsStr.includes('Z') && tsStr.includes('T')) {
+                            tsStr = tsStr + '+05:30';
+                        }
+                        const alertTime = new Date(tsStr);
                         const now = new Date();
                         recentActivity = (now - alertTime) < 10 * 60 * 1000; // 10 minutes
                     } catch {}

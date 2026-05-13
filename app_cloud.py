@@ -43,9 +43,17 @@ CAPTURES_FOLDER = "captures"
 if not os.path.exists(CAPTURES_FOLDER):
     os.makedirs(CAPTURES_FOLDER)
 
-# Database path — use absolute path to avoid cwd issues with gunicorn
+# Database path — use persistent disk on Render, local path otherwise
+# Render.com sets the RENDER env var automatically on their platform.
+# The persistent disk is mounted at /opt/render/project/src/data (see render.yaml)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'emergency.db')
+RENDER_DATA_DIR = '/opt/render/project/src/data'
+if os.environ.get('RENDER') and os.path.isdir(RENDER_DATA_DIR):
+    DB_PATH = os.path.join(RENDER_DATA_DIR, 'emergency.db')
+    logging.info(f"☁️ Running on Render — using PERSISTENT disk: {DB_PATH}")
+else:
+    DB_PATH = os.path.join(BASE_DIR, 'emergency.db')
+    logging.info(f"💻 Running locally — using: {DB_PATH}")
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -550,7 +558,7 @@ def wifi_locate():
     """
     WiFi-based geolocation for ESP32 when GPS has no fix.
     Receives BSSID scan data from ESP32 and returns coordinates.
-    Tries: Google Geolocation API → Mozilla Location Service → IP-based fallback.
+    Tries: Google Geolocation API (WiFi) → Google (WiFi+IP) → IP Geolocation → Browser GPS → Fallback.
     """
     try:
         data = request.json
@@ -560,11 +568,14 @@ def wifi_locate():
             logging.warning("[WIFI_LOCATE] No WiFi access points received")
             return jsonify({"error": "No WiFi data"}), 400
         
-        logging.info(f"[WIFI_LOCATE] Received {len(wifi_aps)} WiFi access points")
+        logging.info(f"[WIFI_LOCATE] Received {len(wifi_aps)} WiFi access points:")
+        for i, ap in enumerate(wifi_aps):
+            logging.info(f"  [{i}] MAC:{ap.get('macAddress','?')} RSSI:{ap.get('signalStrength','?')} CH:{ap.get('channel','?')}")
         
-        # ===== METHOD 1: Google Geolocation API (if key is configured) =====
+        # ===== METHOD 1: Google Geolocation API — WiFi only (most accurate) =====
         google_api_key = os.environ.get('GOOGLE_GEOLOCATION_KEY', '')
         if google_api_key:
+            logging.info(f"[WIFI_LOCATE] Google API key found (length={len(google_api_key)})")
             try:
                 google_url = f"https://www.googleapis.com/geolocation/v1/geolocate?key={google_api_key}"
                 google_payload = {
@@ -572,6 +583,9 @@ def wifi_locate():
                     "wifiAccessPoints": wifi_aps
                 }
                 resp = requests.post(google_url, json=google_payload, timeout=10)
+                logging.info(f"[WIFI_LOCATE] Google API (WiFi-only) HTTP {resp.status_code}")
+                logging.info(f"[WIFI_LOCATE] Google API response: {resp.text[:500]}")
+                
                 if resp.status_code == 200:
                     result = resp.json()
                     loc = result.get("location", {})
@@ -579,7 +593,7 @@ def wifi_locate():
                     lng = loc.get("lng")
                     accuracy = result.get("accuracy", 0)
                     if lat and lng:
-                        logging.info(f"[WIFI_LOCATE] Google API: {lat}, {lng} (accuracy: {accuracy}m)")
+                        logging.info(f"[WIFI_LOCATE] ✓ Google API (WiFi): {lat}, {lng} (accuracy: {accuracy}m)")
                         return jsonify({
                             "status": "success",
                             "latitude": lat,
@@ -587,48 +601,77 @@ def wifi_locate():
                             "accuracy": accuracy,
                             "source": "google_geolocation"
                         })
-                else:
-                    logging.warning(f"[WIFI_LOCATE] Google API failed: {resp.status_code}")
+                    else:
+                        logging.warning(f"[WIFI_LOCATE] Google returned 200 but no lat/lng in response")
+                elif resp.status_code == 404:
+                    logging.warning("[WIFI_LOCATE] Google 404: BSSIDs not in Google's database — your router may not be mapped")
+                elif resp.status_code == 403:
+                    logging.warning("[WIFI_LOCATE] Google 403: API key forbidden — check billing & API enablement")
+                elif resp.status_code == 400:
+                    logging.warning(f"[WIFI_LOCATE] Google 400: Bad request — {resp.text[:300]}")
             except Exception as e:
-                logging.warning(f"[WIFI_LOCATE] Google API error: {e}")
+                logging.warning(f"[WIFI_LOCATE] Google API (WiFi) error: {e}")
+            
+            # ===== METHOD 1b: Google with considerIp=True (uses server IP as hint) =====
+            try:
+                logging.info("[WIFI_LOCATE] Trying Google API with considerIp=true...")
+                google_payload_ip = {
+                    "considerIp": True,
+                    "wifiAccessPoints": wifi_aps
+                }
+                resp2 = requests.post(google_url, json=google_payload_ip, timeout=10)
+                logging.info(f"[WIFI_LOCATE] Google API (WiFi+IP) HTTP {resp2.status_code}")
+                logging.info(f"[WIFI_LOCATE] Google API (WiFi+IP) response: {resp2.text[:500]}")
+                
+                if resp2.status_code == 200:
+                    result2 = resp2.json()
+                    loc2 = result2.get("location", {})
+                    lat2 = loc2.get("lat")
+                    lng2 = loc2.get("lng")
+                    accuracy2 = result2.get("accuracy", 0)
+                    if lat2 and lng2:
+                        logging.info(f"[WIFI_LOCATE] ✓ Google API (WiFi+IP): {lat2}, {lng2} (accuracy: {accuracy2}m)")
+                        return jsonify({
+                            "status": "success",
+                            "latitude": lat2,
+                            "longitude": lng2,
+                            "accuracy": accuracy2,
+                            "source": "google_geolocation_ip"
+                        })
+            except Exception as e:
+                logging.warning(f"[WIFI_LOCATE] Google API (WiFi+IP) error: {e}")
+        else:
+            logging.warning("[WIFI_LOCATE] ⚠ GOOGLE_GEOLOCATION_KEY not set in environment! Set it on Render dashboard.")
         
-        # ===== METHOD 2: Mozilla Location Service (free, no key needed) =====
+        # ===== METHOD 2: IP-based geolocation (free, no key needed) =====
+        # Replaces defunct Mozilla Location Service
         try:
-            mozilla_url = "https://location.services.mozilla.com/v1/geolocate?key=test"
-            mozilla_payload = {
-                "wifiAccessPoints": [
-                    {
-                        "macAddress": ap.get("macAddress", ""),
-                        "signalStrength": ap.get("signalStrength", -70),
-                        "channel": ap.get("channel", 0)
-                    }
-                    for ap in wifi_aps
-                ]
-            }
-            resp = requests.post(mozilla_url, json=mozilla_payload, timeout=10)
-            if resp.status_code == 200:
-                result = resp.json()
-                loc = result.get("location", {})
-                lat = loc.get("lat")
-                lng = loc.get("lng")
-                accuracy = result.get("accuracy", 0)
-                if lat and lng:
-                    logging.info(f"[WIFI_LOCATE] Mozilla API: {lat}, {lng} (accuracy: {accuracy}m)")
+            logging.info("[WIFI_LOCATE] Trying ip-api.com for IP-based geolocation...")
+            ip_resp = requests.get("http://ip-api.com/json/?fields=status,lat,lon,city,query", timeout=5)
+            if ip_resp.status_code == 200:
+                ip_data = ip_resp.json()
+                if ip_data.get("status") == "success":
+                    lat = ip_data.get("lat")
+                    lon = ip_data.get("lon")
+                    city = ip_data.get("city", "unknown")
+                    logging.info(f"[WIFI_LOCATE] ✓ IP geolocation: {lat}, {lon} (city: {city})")
                     return jsonify({
                         "status": "success",
                         "latitude": lat,
-                        "longitude": lng,
-                        "accuracy": accuracy,
-                        "source": "mozilla_location"
+                        "longitude": lon,
+                        "accuracy": 5000,  # IP geolocation is city-level (~5km)
+                        "source": "ip_geolocation"
                     })
+                else:
+                    logging.warning(f"[WIFI_LOCATE] ip-api.com returned status: {ip_data.get('status')}")
             else:
-                logging.warning(f"[WIFI_LOCATE] Mozilla API: HTTP {resp.status_code}")
+                logging.warning(f"[WIFI_LOCATE] ip-api.com HTTP {ip_resp.status_code}")
         except Exception as e:
-            logging.warning(f"[WIFI_LOCATE] Mozilla API error: {e}")
+            logging.warning(f"[WIFI_LOCATE] IP geolocation error: {e}")
         
         # ===== METHOD 3: Use device location if already set via browser =====
         if device_gps_location.get('latitude') is not None:
-            logging.info(f"[WIFI_LOCATE] Using stored browser GPS as fallback")
+            logging.info(f"[WIFI_LOCATE] Using stored browser GPS as fallback: {device_gps_location['latitude']}, {device_gps_location['longitude']}")
             return jsonify({
                 "status": "success",
                 "latitude": device_gps_location['latitude'],
@@ -637,8 +680,8 @@ def wifi_locate():
                 "source": "browser_gps_fallback"
             })
         
-        # ===== METHOD 4: Hardcoded Fallback (Pune) =====
-        logging.info("[WIFI_LOCATE] Falling back to default Pune location")
+        # ===== METHOD 4: Hardcoded Fallback (Pune center) =====
+        logging.warning("[WIFI_LOCATE] ✗ ALL methods failed — returning default Pune fallback")
         return jsonify({
             "status": "success",
             "latitude": 18.5204,
@@ -646,9 +689,6 @@ def wifi_locate():
             "accuracy": 10000,
             "source": "default_fallback"
         })
-        
-        logging.error("[WIFI_LOCATE] All geolocation methods failed")
-        return jsonify({"error": "Could not determine location"}), 500
         
     except Exception as e:
         logging.error(f"[WIFI_LOCATE] Error: {e}")
@@ -1366,7 +1406,7 @@ def trigger_auto_response():
                 client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
                 
                 # Add timestamp to make the SMS unique and bypass telecom spam filters for duplicate messages
-                current_time = datetime.now().strftime("%I:%M:%S %p")
+                current_time = datetime.now(IST).strftime("%I:%M:%S %p")
                 driver_message = f"🚑 EMERGENCY [{current_time}]! Follow route: {short_link}"
                 
                 logging.info(f"📨 Sending Message Content: {driver_message}")
@@ -1784,7 +1824,7 @@ def start_countdown():
     from datetime import datetime
     
     auto_detection_data['countdown_active'] = True
-    auto_detection_data['countdown_start_time'] = datetime.now().isoformat()
+    auto_detection_data['countdown_start_time'] = datetime.now(IST).isoformat()
     auto_detection_data['alert_cancelled'] = False
     
     return jsonify({"status": "success", "countdown_started": True})
@@ -1942,7 +1982,7 @@ def generate_report():
         # Title
         elements.append(Paragraph("🚨 Emergency Response System - Accident Report", styles['Title']))
         elements.append(Spacer(1, 20))
-        elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        elements.append(Paragraph(f"Generated: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S %Z')}", styles['Normal']))
         elements.append(Spacer(1, 20))
         
         # Summary stats
@@ -1989,7 +2029,7 @@ def generate_report():
             buffer,
             mimetype='application/pdf',
             as_attachment=True,
-            download_name=f'accident_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+            download_name=f'accident_report_{datetime.now(IST).strftime("%Y%m%d_%H%M%S")}.pdf'
         )
         
     except ImportError:
@@ -2151,7 +2191,10 @@ def system_status():
             esp_last_seen = row[0]
             try:
                 last_time = datetime.fromisoformat(str(row[0]))
-                esp_online = (datetime.now() - last_time).total_seconds() < 600
+                # Make last_time timezone-aware if it isn't already
+                if last_time.tzinfo is None:
+                    last_time = IST.localize(last_time)
+                esp_online = (datetime.now(IST) - last_time).total_seconds() < 600
             except:
                 esp_online = True
     except:

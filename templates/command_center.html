@@ -300,16 +300,94 @@
 
         @media (max-width: 768px) {
             h1 {
-                font-size: 24px;
+                font-size: 1.4rem;
             }
-
+            .lead {
+                font-size: 0.85rem;
+            }
             .btn-send {
                 font-size: 16px;
-                padding: 8px 16px;
+                padding: 12px 20px;
+                width: 100%;
             }
-
             .status-grid {
                 grid-template-columns: 1fr;
+            }
+            #map {
+                height: 280px;
+            }
+            .container.list-container .row {
+                flex-direction: column;
+            }
+            .container.list-container .col-md-6 {
+                width: 100%;
+                margin-bottom: 20px;
+            }
+            .list-group-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+                padding: 12px;
+            }
+            .list-group-item span {
+                font-size: 0.85rem;
+            }
+            .btn-select {
+                width: 100%;
+                padding: 8px;
+                text-align: center;
+            }
+            .nav-links {
+                flex-direction: column;
+                align-items: center;
+            }
+            .nav-link-btn {
+                width: 100%;
+                text-align: center;
+                padding: 10px;
+            }
+            .status-panel {
+                padding: 14px;
+                margin-bottom: 12px;
+            }
+            .status-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+            .status-actions {
+                flex-direction: column;
+            }
+            .btn-accept, .btn-override, .btn-cancel-alert {
+                width: 100%;
+                text-align: center;
+            }
+            .table-responsive {
+                -webkit-overflow-scrolling: touch;
+            }
+            .audio-controls {
+                top: 5px;
+                right: 5px;
+            }
+            h2 {
+                font-size: 1.2rem;
+            }
+        }
+
+        @media (max-width: 400px) {
+            .container {
+                padding-left: 8px;
+                padding-right: 8px;
+            }
+            h1 {
+                font-size: 1.2rem;
+            }
+            #map {
+                height: 220px;
+                border-radius: 8px;
+            }
+            .countdown-display {
+                font-size: 1.5rem;
             }
         }
     </style>
@@ -911,6 +989,28 @@
             }
             previousDetectionMode = data.detection_mode;
         }
+        // ==================== TIMESTAMP FORMATTING (IST) ====================
+
+        function formatTimestampIST(timestamp) {
+            if (!timestamp) return 'N/A';
+            try {
+                let ts = String(timestamp);
+                if (!ts.includes('+') && !ts.includes('Z') && !ts.includes('T')) {
+                    ts = ts.replace(' ', 'T') + '+05:30';
+                } else if (!ts.includes('+') && !ts.includes('Z') && ts.includes('T')) {
+                    ts = ts + '+05:30';
+                }
+                const date = new Date(ts);
+                if (isNaN(date.getTime())) return timestamp;
+                return date.toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                    hour12: true
+                });
+            } catch (e) {
+                return timestamp;
+            }
+        }
 
         // ==================== CANCEL ALERT FUNCTION ====================
 
@@ -963,7 +1063,7 @@
 
                     row.innerHTML = `
                         <td>#${report.id}</td>
-                        <td>${new Date(report.timestamp).toLocaleTimeString()}</td>
+                        <td>${formatTimestampIST(report.timestamp)}</td>
                         <td>${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)} <br>
                             <small class="text-muted">${isAuto ? '🤖 Auto (' + report.camera_id + ')' : '👤 Manual'}</small>
                         </td>

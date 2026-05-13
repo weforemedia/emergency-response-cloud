@@ -5,7 +5,7 @@ services:
   - type: web
     name: emergency-response-system
     runtime: python
-    plan: free  # Change to "starter" ($7/mo) for always-on
+    plan: starter  # Persistent disk requires at least "starter" plan ($7/mo)
     buildCommand: pip install -r requirements.txt && python database_setup.py
     startCommand: gunicorn app_cloud:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
