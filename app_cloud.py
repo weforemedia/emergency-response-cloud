@@ -1958,12 +1958,21 @@ def generate_report():
     """Generate PDF report of accidents"""
     try:
         from reportlab.lib import colors
-        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
         from io import BytesIO
         from flask import send_file
-        from datetime import datetime
+        
+        # Helper to safely convert any value to a plain ASCII-safe string for reportlab
+        def safe_str(val, max_len=None):
+            if val is None:
+                return 'N/A'
+            s = str(val)
+            if max_len:
+                s = s[:max_len]
+            return s
         
         # Get accident history
         conn = sqlite3.connect(DB_PATH)
@@ -1975,68 +1984,103 @@ def generate_report():
         
         # Create PDF
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        doc = SimpleDocTemplate(buffer, pagesize=A4,
+                                leftMargin=15*mm, rightMargin=15*mm,
+                                topMargin=15*mm, bottomMargin=15*mm)
         elements = []
         styles = getSampleStyleSheet()
         
-        # Title
-        elements.append(Paragraph("🚨 Emergency Response System - Accident Report", styles['Title']))
-        elements.append(Spacer(1, 20))
-        elements.append(Paragraph(f"Generated: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S %Z')}", styles['Normal']))
-        elements.append(Spacer(1, 20))
+        # Title (no emoji — reportlab built-in fonts don't support them)
+        elements.append(Paragraph("Emergency Response System - Accident Report", styles['Title']))
+        elements.append(Spacer(1, 10))
+        
+        gen_time = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')
+        elements.append(Paragraph(f"Generated: {gen_time}", styles['Normal']))
+        elements.append(Spacer(1, 15))
         
         # Summary stats
         total = len(rows)
         completed = sum(1 for r in rows if r['status'] == 'completed')
+        dispatched = sum(1 for r in rows if r['status'] == 'dispatched')
         cancelled = sum(1 for r in rows if r['status'] == 'cancelled')
+        pending = sum(1 for r in rows if r['status'] == 'pending')
         
-        elements.append(Paragraph(f"Total Accidents: {total}", styles['Normal']))
-        elements.append(Paragraph(f"Completed: {completed}", styles['Normal']))
-        elements.append(Paragraph(f"Cancelled: {cancelled}", styles['Normal']))
-        elements.append(Spacer(1, 30))
+        summary_text = (
+            f"Total Accidents: {total}  |  "
+            f"Dispatched: {dispatched}  |  "
+            f"Completed: {completed}  |  "
+            f"Cancelled: {cancelled}  |  "
+            f"Pending: {pending}"
+        )
+        elements.append(Paragraph(summary_text, styles['Normal']))
+        elements.append(Spacer(1, 20))
         
         # Table data
-        data = [['ID', 'Date/Time', 'Camera', 'Ambulance', 'Hospital', 'Status']]
+        header = ['ID', 'Date/Time', 'Camera', 'Ambulance', 'Hospital', 'Status']
+        data = [header]
+        
         for row in rows:
+            ts = safe_str(row['timestamp'], 19)
             data.append([
-                str(row['id']),
-                row['timestamp'][:19] if row['timestamp'] else 'N/A',
-                row['camera_id'] or 'N/A',
-                row['ambulance_id'] or 'N/A',
-                (row['hospital_name'] or 'N/A')[:20],
-                row['status'] or 'N/A'
+                safe_str(row['id']),
+                ts,
+                safe_str(row['camera_id']),
+                safe_str(row['ambulance_id']),
+                safe_str(row['hospital_name'], 25),
+                safe_str(row['status'])
             ])
         
-        # Create table
-        table = Table(data, colWidths=[30, 100, 60, 60, 120, 60])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-        ]))
-        elements.append(table)
+        if len(data) == 1:
+            # Only header, no data rows — add a message
+            elements.append(Paragraph("No accident records found in the database.", styles['Normal']))
+        else:
+            # Create table with proper column widths for A4 (595pt - margins)
+            col_widths = [30, 110, 65, 65, 130, 60]
+            table = Table(data, colWidths=col_widths, repeatRows=1)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a1a2e')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('TOPPADDING', (0, 0), (-1, 0), 10),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8f9fa')),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#1a1a2e')),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('TOPPADDING', (0, 1), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#f8f9fa'), colors.HexColor('#e9ecef')]),
+            ]))
+            elements.append(table)
+        
+        elements.append(Spacer(1, 20))
+        elements.append(Paragraph(
+            f"Report contains {total} record(s). Generated automatically by the Emergency Response System.",
+            styles['Normal']
+        ))
         
         doc.build(elements)
         buffer.seek(0)
+        
+        filename = f'accident_report_{datetime.now(IST).strftime("%Y%m%d_%H%M%S")}.pdf'
         
         return send_file(
             buffer,
             mimetype='application/pdf',
             as_attachment=True,
-            download_name=f'accident_report_{datetime.now(IST).strftime("%Y%m%d_%H%M%S")}.pdf'
+            download_name=filename
         )
         
-    except ImportError:
-        return jsonify({"error": "ReportLab not installed. Run: pip install reportlab"}), 500
+    except ImportError as ie:
+        logging.error(f"PDF ImportError: {ie}")
+        return jsonify({"error": "ReportLab not installed on server. Contact admin."}), 500
     except Exception as e:
-        logging.error(f"❌ Error generating report: {e}")
-        return jsonify({"error": str(e)}), 500
+        logging.error(f"Error generating report: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
 
 
 # ==================== ANALYTICS ====================
