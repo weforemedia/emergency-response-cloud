@@ -6,7 +6,7 @@ services:
     name: emergency-response-system
     runtime: python
     plan: starter  # Persistent disk requires at least "starter" plan ($7/mo)
-    buildCommand: pip install -r requirements.txt && python -c "import reportlab; print('reportlab OK:', reportlab.Version)" && python database_setup.py
+    buildCommand: pip install -r requirements.txt && python database_setup.py
     startCommand: gunicorn app_cloud:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: TWILIO_ACCOUNT_SID
