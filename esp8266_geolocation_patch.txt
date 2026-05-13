@@ -1,0 +1,224 @@
+// =====================================================
+// REPLACE your getWiFiLocation() function with this:
+// =====================================================
+
+// ⚠️ PUT YOUR GOOGLE GEOLOCATION API KEY HERE (optional but recommended)
+const char* GOOGLE_API_KEY = "";  // <-- PASTE YOUR KEY HERE
+
+// Helper: parse lat/lon from JSON response string
+bool parseLatLon(const String& json, float& outLat, float& outLon)
+{
+  outLat = 0;
+  outLon = 0;
+
+  int latIdx = json.indexOf("\"lat\"");
+  if (latIdx < 0) latIdx = json.indexOf("\"latitude\"");
+  if (latIdx > 0) {
+    int s = json.indexOf(':', latIdx) + 1;
+    int e = json.indexOf(',', s);
+    if (e < 0) e = json.indexOf('}', s);
+    outLat = json.substring(s, e).toFloat();
+  }
+
+  int lonIdx = json.indexOf("\"lng\"");
+  if (lonIdx < 0) lonIdx = json.indexOf("\"longitude\"");
+  if (lonIdx > 0) {
+    int s = json.indexOf(':', lonIdx) + 1;
+    int e = json.indexOf(',', s);
+    if (e < 0) e = json.indexOf('}', s);
+    outLon = json.substring(s, e).toFloat();
+  }
+
+  return (outLat != 0 && outLon != 0);
+}
+
+void getWiFiLocation()
+{
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  Serial.println("[LOC] Scanning nearby WiFi networks...");
+  lcd.clear();
+  lcd.print("Scanning WiFi");
+  lcd.setCursor(0, 1);
+  lcd.print("networks...");
+
+  int n = WiFi.scanNetworks(false, true);
+
+  if (n <= 0)
+  {
+    Serial.println("[LOC] No networks found!");
+    lcd.clear();
+    lcd.print("No WiFi found");
+    delay(1500);
+    return;
+  }
+
+  Serial.printf("[LOC] Found %d networks\n", n);
+
+  // Build payload — skip weak signals, up to 20 APs
+  String payload = "{\"considerIp\":false,\"wifiAccessPoints\":[";
+  int count = 0;
+
+  for (int i = 0; i < n && count < 20; i++)
+  {
+    int rssi = WiFi.RSSI(i);
+    if (rssi < -90) continue;  // skip very weak signals
+
+    if (count > 0) payload += ",";
+
+    String bssid = WiFi.BSSIDstr(i);
+    payload += "{\"macAddress\":\"" + bssid + "\",";
+    payload += "\"signalStrength\":" + String(rssi) + ",";
+    payload += "\"channel\":" + String(WiFi.channel(i)) + "}";
+
+    Serial.printf("  [%d] %s  RSSI:%d  CH:%d  %s\n",
+      count, bssid.c_str(), rssi, WiFi.channel(i), WiFi.SSID(i).c_str());
+
+    count++;
+  }
+
+  payload += "]}";
+  WiFi.scanDelete();
+
+  if (count < 2)
+  {
+    Serial.println("[LOC] Too few APs for accurate location");
+    lcd.clear();
+    lcd.print("Too few APs");
+    delay(1500);
+    return;
+  }
+
+  lcd.clear();
+  lcd.print("Locating...");
+  lcd.setCursor(0, 1);
+  lcdPrintf("%d APs scanned", count);
+
+  // ===== METHOD 1: Direct Google Geolocation API =====
+  if (strlen(GOOGLE_API_KEY) > 0)
+  {
+    Serial.println("[LOC] Trying Google Geolocation API directly...");
+
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    String googleUrl = "https://www.googleapis.com/geolocation/v1/geolocate?key=" + String(GOOGLE_API_KEY);
+    http.begin(client, googleUrl);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(10000);
+
+    int code = http.POST(payload);
+    String resp = (code > 0) ? http.getString() : "";
+    http.end();
+
+    Serial.printf("[LOC] Google API HTTP %d\n", code);
+    Serial.println("[LOC] Google resp: " + resp);
+
+    if (code == 200)
+    {
+      float lat, lon;
+      if (parseLatLon(resp, lat, lon))
+      {
+        wifiLat = lat;
+        wifiLon = lon;
+        wifiLocValid = true;
+        Serial.printf("[LOC] Google direct: %.6f, %.6f\n", lat, lon);
+        lcd.clear();
+        lcd.print("Loc: Google OK!");
+        lcd.setCursor(0, 1);
+        lcdPrintf("%.4f,%.4f", lat, lon);
+        delay(1500);
+        return;
+      }
+    }
+    else if (code == 403 || code == 400)
+      Serial.println("[LOC] Google API key issue! Check: enabled? billing?");
+    else if (code == 404)
+      Serial.println("[LOC] Google can't find these APs in database");
+  }
+  else
+  {
+    Serial.println("[LOC] No GOOGLE_API_KEY — skipping direct call");
+  }
+
+  // ===== METHOD 2: Cloud server /api/wifi_locate =====
+  Serial.println("[LOC] Trying cloud server for geolocation...");
+
+  // Re-scan for cloud request
+  String cloudPayload = "{\"wifiAccessPoints\":[";
+  int n2 = WiFi.scanNetworks(false, true);
+  int cnt2 = 0;
+  for (int i = 0; i < n2 && cnt2 < 20; i++)
+  {
+    int rssi = WiFi.RSSI(i);
+    if (rssi < -90) continue;
+    if (cnt2 > 0) cloudPayload += ",";
+    cloudPayload += "{\"macAddress\":\"" + WiFi.BSSIDstr(i) + "\",";
+    cloudPayload += "\"signalStrength\":" + String(rssi) + ",";
+    cloudPayload += "\"channel\":" + String(WiFi.channel(i)) + "}";
+    cnt2++;
+  }
+  cloudPayload += "]}";
+  WiFi.scanDelete();
+
+  WiFiClientSecure client2;
+  client2.setInsecure();
+
+  HTTPClient http2;
+  http2.begin(client2, String(SERVER_URL) + "/api/wifi_locate");
+  http2.addHeader("Content-Type", "application/json");
+  http2.setTimeout(15000);
+
+  int code2 = http2.POST(cloudPayload);
+
+  if (code2 == 200)
+  {
+    String resp = http2.getString();
+    Serial.println("[LOC] Cloud: " + resp);
+
+    // *** KEY FIX: Reject default_fallback responses ***
+    if (resp.indexOf("default_fallback") > 0)
+    {
+      Serial.println("[LOC] Cloud returned default_fallback — NOT using fake coords");
+      wifiLocValid = false;
+      lcd.clear();
+      lcd.print("Loc: fallback");
+      lcd.setCursor(0, 1);
+      lcd.print("Waiting GPS...");
+    }
+    else
+    {
+      float lat, lon;
+      if (parseLatLon(resp, lat, lon))
+      {
+        wifiLat = lat;
+        wifiLon = lon;
+        wifiLocValid = true;
+        Serial.printf("[LOC] Cloud location: %.6f, %.6f\n", lat, lon);
+        lcd.clear();
+        lcd.print("Loc OK!");
+        lcd.setCursor(0, 1);
+        lcdPrintf("%.4f,%.4f", lat, lon);
+      }
+      else
+      {
+        Serial.println("[LOC] Could not parse cloud response");
+        wifiLocValid = false;
+        lcd.clear();
+        lcd.print("Loc parse fail");
+      }
+    }
+  }
+  else
+  {
+    Serial.printf("[LOC] Cloud HTTP %d\n", code2);
+    lcd.clear();
+    lcd.print("Loc API fail");
+    lcd.setCursor(0, 1);
+    lcdPrintf("HTTP %d", code2);
+  }
+
+  http2.end();
+  delay(1500);
+}

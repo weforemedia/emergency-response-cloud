@@ -1952,28 +1952,154 @@ def get_traffic_lights():
 
 
 # ==================== PDF REPORT ====================
+# Pure-Python PDF generator — ZERO external dependencies (no reportlab needed)
+
+
+def _build_pdf(header, data_rows, summary_text, gen_time):
+    """Build a complete PDF file as bytes using raw PDF syntax. No libraries."""
+    pw, ph = 595.28, 841.89  # A4
+    font = 'Helvetica'
+    font_b = 'Helvetica-Bold'
+    col_w = [30, 120, 70, 70, 160, 80]
+    margin_l = 30
+    margin_top = 40
+    row_h = 18
+    hdr_h = 22
+
+    def _esc(t):
+        return str(t).replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+
+    def _txt(x, y, text, sz=10, bold=False):
+        f = font_b if bold else font
+        return f"BT /{f} {sz} Tf {x:.2f} {y:.2f} Td ({_esc(text)}) Tj ET\n"
+
+    def _rect(x, y, w, h, r, g, b):
+        return f"{r:.3f} {g:.3f} {b:.3f} rg\n{x:.2f} {y:.2f} {w:.2f} {h:.2f} re f\n"
+
+    def _hline(x1, y, x2):
+        return f"0.78 0.80 0.82 RG\n0.5 w\n{x1:.2f} {y:.2f} m {x2:.2f} {y:.2f} l S\n"
+
+    def draw_header(s, y):
+        tw = sum(col_w)
+        s += _rect(margin_l, y - 4, tw, hdr_h, 0.10, 0.10, 0.18)
+        s += "1 1 1 rg\n"
+        x = margin_l
+        for i, h in enumerate(header):
+            s += f"BT /{font_b} 8 Tf {x+4:.2f} {y+4:.2f} Td ({_esc(h)}) Tj ET\n"
+            x += col_w[i]
+        s += "0 0 0 rg\n"
+        return s, y - hdr_h
+
+    # Build page streams
+    pages = []
+    cs = ""
+    yc = ph - margin_top
+
+    # Title block
+    cs += _txt(margin_l, yc, "Emergency Response System - Accident Report", 16, True)
+    yc -= 24
+    cs += _txt(margin_l, yc, f"Generated: {gen_time}", 9)
+    yc -= 16
+    cs += _txt(margin_l, yc, summary_text, 9)
+    yc -= 28
+
+    cs, yc = draw_header(cs, yc)
+
+    for ri, row in enumerate(data_rows):
+        if yc < 60:
+            pages.append(cs)
+            cs = ""
+            yc = ph - margin_top
+            cs, yc = draw_header(cs, yc)
+
+        tw = sum(col_w)
+        bg = (0.97, 0.97, 0.98) if ri % 2 == 0 else (0.91, 0.93, 0.93)
+        cs += _rect(margin_l, yc - 4, tw, row_h, *bg)
+        cs += _hline(margin_l, yc - 4, margin_l + tw)
+
+        cs += "0.10 0.10 0.18 rg\n"
+        x = margin_l
+        for i, cell in enumerate(row):
+            mc = int(col_w[i] / 5)
+            ct = str(cell)[:mc] if cell else 'N/A'
+            cs += f"BT /{font} 7 Tf {x+3:.2f} {yc+3:.2f} Td ({_esc(ct)}) Tj ET\n"
+            x += col_w[i]
+        cs += "0 0 0 rg\n"
+        yc -= row_h
+
+    # Footer
+    tw = sum(col_w)
+    cs += _hline(margin_l, yc + row_h - 4, margin_l + tw)
+    yc -= 20
+    cs += _txt(margin_l, max(yc, 40),
+               f"Report contains {len(data_rows)} record(s). Generated automatically.", 8)
+    pages.append(cs)
+
+    # ===== Assemble PDF objects =====
+    objs = []  # list of (obj_num, encoded_bytes)
+    ctr = [0]
+
+    def add(body):
+        ctr[0] += 1
+        n = ctr[0]
+        objs.append((n, f"{n} 0 obj\n{body}\nendobj\n".encode('latin-1', 'replace')))
+        return n
+
+    cat = add("<< /Type /Catalog /Pages 2 0 R >>")
+    add("PLACEHOLDER")  # obj 2 = Pages, patched below
+    f1 = add(f"<< /Type /Font /Subtype /Type1 /BaseFont /{font} >>")
+    f2 = add(f"<< /Type /Font /Subtype /Type1 /BaseFont /{font_b} >>")
+
+    res = f"<< /Font << /{font} {f1} 0 R /{font_b} {f2} 0 R >> >>"
+    pids = []
+    for ps in pages:
+        raw = ps.encode('latin-1', 'replace')
+        sid = add(f"<< /Length {len(raw)} >>\nstream\n{ps}endstream")
+        pid = add(
+            f"<< /Type /Page /Parent 2 0 R "
+            f"/MediaBox [0 0 {pw:.2f} {ph:.2f}] "
+            f"/Contents {sid} 0 R /Resources {res} >>"
+        )
+        pids.append(pid)
+
+    # Patch Pages object (obj 2)
+    kids = ' '.join(f"{p} 0 R" for p in pids)
+    objs[1] = (2, f"2 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {len(pids)} >>\nendobj\n"
+               .encode('latin-1', 'replace'))
+
+    # Write final PDF
+    pdf = b'%PDF-1.4\n'
+    xoff = {}
+    for num, raw in objs:
+        xoff[num] = len(pdf)
+        pdf += raw
+
+    xref_pos = len(pdf)
+    pdf += f"xref\n0 {len(objs)+1}\n".encode()
+    pdf += b"0000000000 65535 f \n"
+    for i in range(1, len(objs) + 1):
+        pdf += f"{xoff[i]:010d} 00000 n \n".encode()
+    pdf += f"trailer\n<< /Size {len(objs)+1} /Root {cat} 0 R >>\n".encode()
+    pdf += f"startxref\n{xref_pos}\n%%EOF\n".encode()
+    return pdf
+
 
 @app.route('/api/generate_report')
 def generate_report():
-    """Generate PDF report of accidents"""
+    """Generate PDF report of accidents — zero external dependencies"""
     try:
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.lib.units import mm
         from io import BytesIO
         from flask import send_file
-        
-        # Helper to safely convert any value to a plain ASCII-safe string for reportlab
+
         def safe_str(val, max_len=None):
             if val is None:
                 return 'N/A'
             s = str(val)
+            s = s.encode('latin-1', errors='replace').decode('latin-1')
             if max_len:
                 s = s[:max_len]
             return s
-        
+
         # Get accident history
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -1981,106 +2107,52 @@ def generate_report():
         cur.execute('SELECT * FROM accident_history ORDER BY timestamp DESC LIMIT 50')
         rows = cur.fetchall()
         conn.close()
-        
-        # Create PDF
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4,
-                                leftMargin=15*mm, rightMargin=15*mm,
-                                topMargin=15*mm, bottomMargin=15*mm)
-        elements = []
-        styles = getSampleStyleSheet()
-        
-        # Title (no emoji — reportlab built-in fonts don't support them)
-        elements.append(Paragraph("Emergency Response System - Accident Report", styles['Title']))
-        elements.append(Spacer(1, 10))
-        
-        gen_time = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')
-        elements.append(Paragraph(f"Generated: {gen_time}", styles['Normal']))
-        elements.append(Spacer(1, 15))
-        
+
         # Summary stats
         total = len(rows)
         completed = sum(1 for r in rows if r['status'] == 'completed')
         dispatched = sum(1 for r in rows if r['status'] == 'dispatched')
         cancelled = sum(1 for r in rows if r['status'] == 'cancelled')
         pending = sum(1 for r in rows if r['status'] == 'pending')
-        
+
+        gen_time = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')
         summary_text = (
-            f"Total Accidents: {total}  |  "
-            f"Dispatched: {dispatched}  |  "
-            f"Completed: {completed}  |  "
-            f"Cancelled: {cancelled}  |  "
-            f"Pending: {pending}"
+            f"Total: {total}  |  Dispatched: {dispatched}  |  "
+            f"Completed: {completed}  |  Cancelled: {cancelled}  |  Pending: {pending}"
         )
-        elements.append(Paragraph(summary_text, styles['Normal']))
-        elements.append(Spacer(1, 20))
-        
-        # Table data
+
         header = ['ID', 'Date/Time', 'Camera', 'Ambulance', 'Hospital', 'Status']
-        data = [header]
-        
+        data_rows = []
         for row in rows:
-            ts = safe_str(row['timestamp'], 19)
-            data.append([
+            data_rows.append([
                 safe_str(row['id']),
-                ts,
+                safe_str(row['timestamp'], 19),
                 safe_str(row['camera_id']),
                 safe_str(row['ambulance_id']),
-                safe_str(row['hospital_name'], 25),
+                safe_str(row['hospital_name'], 30),
                 safe_str(row['status'])
             ])
-        
-        if len(data) == 1:
-            # Only header, no data rows — add a message
-            elements.append(Paragraph("No accident records found in the database.", styles['Normal']))
-        else:
-            # Create table with proper column widths for A4 (595pt - margins)
-            col_widths = [30, 110, 65, 65, 130, 60]
-            table = Table(data, colWidths=col_widths, repeatRows=1)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a1a2e')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                ('TOPPADDING', (0, 0), (-1, 0), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8f9fa')),
-                ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#1a1a2e')),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')),
-                ('FONTSIZE', (0, 1), (-1, -1), 7),
-                ('TOPPADDING', (0, 1), (-1, -1), 6),
-                ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#f8f9fa'), colors.HexColor('#e9ecef')]),
-            ]))
-            elements.append(table)
-        
-        elements.append(Spacer(1, 20))
-        elements.append(Paragraph(
-            f"Report contains {total} record(s). Generated automatically by the Emergency Response System.",
-            styles['Normal']
-        ))
-        
-        doc.build(elements)
+
+        pdf_bytes = _build_pdf(header, data_rows, summary_text, gen_time)
+
+        buffer = BytesIO(pdf_bytes)
         buffer.seek(0)
-        
+
         filename = f'accident_report_{datetime.now(IST).strftime("%Y%m%d_%H%M%S")}.pdf'
-        
+
         return send_file(
             buffer,
             mimetype='application/pdf',
             as_attachment=True,
             download_name=filename
         )
-        
-    except ImportError as ie:
-        logging.error(f"PDF ImportError: {ie}")
-        return jsonify({"error": "ReportLab not installed on server. Contact admin."}), 500
+
     except Exception as e:
         logging.error(f"Error generating report: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
+
 
 
 # ==================== ANALYTICS ====================
